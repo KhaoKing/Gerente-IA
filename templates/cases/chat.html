@@ -1,0 +1,191 @@
+{% extends 'base.html' %}
+{% block title %}{{ case.title }} — Gerente IA{% endblock %}
+{% block content %}
+<div class="chat-page">
+  <aside class="chat-sidebar">
+    <div class="case-info">
+      <span class="case-difficulty difficulty-{{ case.difficulty }}">{{ case.get_difficulty_display }}</span>
+      <h2 class="case-title">{{ case.title }}</h2>
+      <span class="case-category">{{ case.get_category_display }}</span>
+      <div class="case-desc">{{ case.description }}</div>
+    </div>
+    <div class="case-tips">
+      <h4>💡 Recuerda</h4>
+      <ul>
+        <li>Analiza todos los ángulos del caso</li>
+        <li>Justifica tus decisiones</li>
+        <li>Considera el impacto en el equipo</li>
+        <li>Escribe <strong>"evaluar"</strong> para finalizar</li>
+      </ul>
+    </div>
+    <a href="{% url 'dashboard' %}" class="btn-ghost btn-full">← Dashboard</a>
+  </aside>
+
+  <div class="chat-main">
+    <div class="chat-header">
+      <div class="chat-avatar">🤖</div>
+      <div>
+        <p class="chat-coach-name">Coach IA</p>
+        <p class="chat-status {% if session.status == 'en_progreso' %}status-online{% endif %}">
+          {% if session.status == 'en_progreso' %}En línea{% else %}Sesión finalizada — pendiente revisión del Coach{% endif %}
+        </p>
+      </div>
+    </div>
+
+    <div class="chat-messages" id="chatMessages">
+      {% for msg in messages %}
+      <div class="message message-{{ msg.role }} {% if msg.message_type == 'error_ia' %}message-error{% endif %}">
+        <div class="message-bubble">{{ msg.content|linebreaksbr }}</div>
+        <span class="message-time">
+          {{ msg.created_at|date:"H:i" }}
+          {% if msg.quick_reply_option %}<span class="qr-tag">respuesta rápida</span>{% endif %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if session.status == 'en_progreso' %}
+
+    <!-- Botones de respuesta rápida -->
+    <div class="quick-replies" id="quickReplies">
+      <p class="qr-label">Respuesta rápida:</p>
+      <div class="qr-buttons">
+        <button class="qr-btn qr-agree"   data-option="agree"      onclick="openQuickReply(this)">✅ Estoy de acuerdo</button>
+        <button class="qr-btn qr-disagree" data-option="disagree"  onclick="openQuickReply(this)">❌ No estoy de acuerdo</button>
+        <button class="qr-btn qr-incomplete" data-option="incomplete" onclick="openQuickReply(this)">🤔 Creo que falta algo</button>
+      </div>
+    </div>
+
+    <!-- Modal de razón para quick reply -->
+    <div class="qr-modal" id="qrModal" style="display:none">
+      <div class="qr-modal-inner">
+        <p class="qr-modal-title" id="qrModalTitle">¿Por qué estás de acuerdo?</p>
+        <textarea id="qrReason" class="chat-textarea" rows="3" placeholder="Explica tu razonamiento..."></textarea>
+        <div class="qr-modal-actions">
+          <button class="btn-ghost" onclick="closeQuickReply()">Cancelar</button>
+          <button class="btn-primary" onclick="sendQuickReply()">Enviar →</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="chat-input-area">
+      <div class="chat-input-wrapper">
+        <textarea id="messageInput" class="chat-textarea" placeholder="O escribe tu respuesta libremente..." rows="2"></textarea>
+        <button id="sendBtn" class="btn-send">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+        </button>
+      </div>
+      <p class="chat-hint"><kbd>Enter</kbd> para enviar · <kbd>Shift+Enter</kbd> nueva línea</p>
+    </div>
+
+    {% else %}
+    <div class="chat-closed">
+      <p>Sesión finalizada. Tu Coach revisará esta sesión y emitirá el dictamen. Tu Coach también liberará el siguiente caso cuando corresponda.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const SEND_URL = "{% url 'send_message' session.id %}";
+const CSRF_TOKEN = "{{ csrf_token }}";
+const chatMessages = document.getElementById('chatMessages');
+const messageInput = document.getElementById('messageInput');
+const sendBtn = document.getElementById('sendBtn');
+
+let activeQuickOption = '';
+const QR_LABELS = {
+  agree: '¿Por qué estás de acuerdo? Explica tu razonamiento.',
+  disagree: '¿Por qué no estás de acuerdo? ¿Cuál sería tu alternativa?',
+  incomplete: '¿Qué crees que falta? ¿Qué elemento agregarías?',
+};
+const QR_DISPLAY = {
+  agree: '✅ Estoy de acuerdo',
+  disagree: '❌ No estoy de acuerdo',
+  incomplete: '🤔 Creo que falta algo',
+};
+
+function scrollToBottom() { chatMessages.scrollTop = chatMessages.scrollHeight; }
+function formatTime(d) { return d.toLocaleTimeString('es-MX', {hour:'2-digit',minute:'2-digit'}); }
+
+function appendMessage(role, content, time, isError=false, qrTag='') {
+  const div = document.createElement('div');
+  div.className = `message message-${role}${isError?' message-error':''}`;
+  const tagHtml = qrTag ? `<span class="qr-tag">${qrTag}</span>` : '';
+  div.innerHTML = `<div class="message-bubble">${content.replace(/\n/g,'<br>').replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')}</div><span class="message-time">${time}${tagHtml}</span>`;
+  chatMessages.appendChild(div);
+  scrollToBottom();
+}
+
+function showTyping() {
+  const div = document.createElement('div');
+  div.className = 'message message-assistant typing-indicator'; div.id = 'typingIndicator';
+  div.innerHTML = `<div class="message-bubble"><span></span><span></span><span></span></div>`;
+  chatMessages.appendChild(div); scrollToBottom();
+}
+function removeTyping() { const el = document.getElementById('typingIndicator'); if(el) el.remove(); }
+
+// ── Quick replies ──────────────────────────────────────────────────────────────
+function openQuickReply(btn) {
+  activeQuickOption = btn.dataset.option;
+  document.getElementById('qrModalTitle').textContent = QR_LABELS[activeQuickOption];
+  document.getElementById('qrReason').value = '';
+  document.getElementById('qrModal').style.display = 'flex';
+  document.getElementById('qrReason').focus();
+}
+function closeQuickReply() {
+  document.getElementById('qrModal').style.display = 'none';
+  activeQuickOption = '';
+}
+async function sendQuickReply() {
+  const reason = document.getElementById('qrReason').value.trim();
+  if (!reason) { document.getElementById('qrReason').focus(); return; }
+  const displayText = `${QR_DISPLAY[activeQuickOption]} — ${reason}`;
+  closeQuickReply();
+  await postMessage(displayText, activeQuickOption, reason);
+}
+
+// ── Envío normal ───────────────────────────────────────────────────────────────
+async function sendMessage() {
+  const text = messageInput.value.trim();
+  if (!text) return;
+  messageInput.value = '';
+  await postMessage(text, '', '');
+}
+
+async function postMessage(text, qrOption, qrReason) {
+  appendMessage('user', text, formatTime(new Date()), false, qrOption ? 'respuesta rápida' : '');
+  if(sendBtn) sendBtn.disabled = true;
+  showTyping();
+  try {
+    const res = await fetch(SEND_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','X-CSRFToken':CSRF_TOKEN},
+      body: JSON.stringify({message: text, quick_reply_option: qrOption, quick_reply_reason: qrReason}),
+    });
+    const data = await res.json();
+    removeTyping();
+    // Si la entrada fue rechazada por incoherente, mostramos la sugerencia y NO cerramos la sesión.
+    if (data.is_invalid_input) {
+      appendMessage('assistant', data.response, data.timestamp, true);
+      return;
+    }
+    if (data.response) appendMessage('assistant', data.response, data.timestamp, data.is_error || false);
+    if (data.session_status && data.session_status !== 'en_progreso') {
+      document.querySelector('.quick-replies')?.remove();
+      document.querySelector('.chat-input-area').innerHTML = `<div class="chat-closed"><p>Sesión finalizada. Tu Coach revisará esta sesión.</p></div>`;
+    }
+  } catch(e) {
+    removeTyping();
+    appendMessage('system', '⚠️ Error de conexión. Intenta de nuevo.', formatTime(new Date()), true);
+  } finally { if(sendBtn) sendBtn.disabled = false; }
+}
+
+sendBtn?.addEventListener('click', sendMessage);
+messageInput?.addEventListener('keydown', e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage();} });
+document.getElementById('qrReason')?.addEventListener('keydown', e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendQuickReply();} });
+scrollToBottom();
+</script>
+{% endblock %}

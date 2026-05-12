@@ -1,0 +1,217 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard — Gerente IA{% endblock %}
+{% block nav_dashboard %}active{% endblock %}
+{% block content %}
+<div class="dashboard-page">
+  <div class="dashboard-header">
+    <div>
+      <h1 class="dashboard-title">Hola, <span class="highlight">{{ user.get_full_name|default:user.username }}</span></h1>
+      <p class="dashboard-sub">{{ user.get_role_display }} · {{ user.email }}</p>
+    </div>
+  </div>
+
+  {# ── GERENTE ── #}
+  {% if user.is_gerente %}
+  <div class="dashboard-grid">
+
+    {# Botón único — visualmente el mismo. Cambia destino según estado del diagnóstico. #}
+    <div class="card card-diagnosis card-wide">
+      {% if diagnosis_state == 'no_iniciado' %}
+        <div class="card-badge">PASO 1 — REQUERIDO</div>
+        <h3>🎯 Diagnóstico inicial</h3>
+        <p>Antes de comenzar, necesitamos conocer tu nivel gerencial. Tu Coach IA te hará 5 preguntas situacionales.</p>
+        <div style="margin-top:1rem">
+          <a href="{% url 'start_diagnosis' %}" class="btn-primary">Iniciar diagnóstico →</a>
+        </div>
+
+      {% elif diagnosis_state == 'en_progreso' %}
+        <div class="card-badge">PASO 1 — EN CURSO</div>
+        <h3>🎯 Diagnóstico inicial</h3>
+        <p>Continúa con las 5 preguntas situacionales para que tu Coach pueda evaluarte.</p>
+        <div style="margin-top:1rem">
+          <a href="{% url 'diagnosis_chat' %}" class="btn-primary">Continuar diagnóstico →</a>
+          <span style="margin-left:1rem;font-size:.8rem;color:var(--text-2)">Pregunta {{ diagnosis_session.current_question }} de 5</span>
+        </div>
+
+      {% elif diagnosis_state == 'esperando_coach' %}
+        <div class="card-badge">ESPERANDO COACH</div>
+        <h3>⏳ Diagnóstico enviado</h3>
+        <p>Completaste las 5 preguntas. Tu Coach está revisando tus respuestas. Cuando apruebe, se habilitará el chatbox con la IA.</p>
+        <div style="margin-top:1rem">
+          <button class="btn-primary" disabled style="opacity:.55;cursor:not-allowed">Pendiente aprobación del Coach</button>
+        </div>
+
+      {% elif diagnosis_state == 'rechazado' %}
+        <div class="card-badge">REQUIERE REPETIR</div>
+        <h3>🔄 Diagnóstico no aprobado</h3>
+        <p>Tu Coach considera que debes repetir el diagnóstico. Vuelve a responder las 5 preguntas con más detalle.</p>
+        {% if diagnosis_session.coach_verdict %}
+        <p style="margin-top:.6rem;font-size:.85rem;color:var(--text-2)"><strong>Comentario del Coach:</strong> {{ diagnosis_session.coach_verdict }}</p>
+        {% endif %}
+        <div style="margin-top:1rem">
+          <a href="{% url 'start_diagnosis' %}" class="btn-primary">Reiniciar diagnóstico →</a>
+        </div>
+
+      {% elif diagnosis_state == 'aprobado' %}
+        {% if active_session %}
+          <div class="card-badge">EN PROGRESO</div>
+          <h3>{{ active_session.case.title }}</h3>
+          <p class="card-meta">
+            <span class="tag">{{ active_session.case.get_category_display }}</span>
+            <span class="tag">{{ active_session.case.get_difficulty_display }}</span>
+          </p>
+          <p class="card-desc">Tienes un caso activo con el chatbox de IA. Retoma la conversación.</p>
+          <div style="margin-top:1rem">
+            <a href="{% url 'chat' active_session.id %}" class="btn-primary">Continuar con la IA →</a>
+          </div>
+        {% else %}
+          <div class="card-badge">CHATBOX IA HABILITADO</div>
+          <h3>💬 Listo para conversar con la IA</h3>
+          <p>Tu Coach aprobó tu diagnóstico. Ahora puedes iniciar un caso gerencial y conversar con la IA.</p>
+          <div style="margin-top:1rem">
+            <a href="{% url 'start_case' %}" class="btn-primary">Iniciar caso con IA →</a>
+          </div>
+        {% endif %}
+      {% endif %}
+    </div>
+
+    {% if diagnosis_state == 'aprobado' %}
+      <div class="stats-row">
+        <div class="stat-card"><span class="stat-value">{{ completed_sessions|length }}</span><span class="stat-label">Casos completados</span></div>
+        <div class="stat-card"><span class="stat-value">{{ available_cases }}</span><span class="stat-label">Casos disponibles</span></div>
+      </div>
+    {% endif %}
+
+    {% if completed_sessions %}
+    <div class="card card-wide">
+      <h3>Historial reciente</h3>
+      <ul class="session-list">
+        {% for s in completed_sessions %}
+        <li class="session-item">
+          <div><span class="session-title">{{ s.case.title }}</span><span class="session-meta">{{ s.completed_at|date:"d/m/Y" }}</span></div>
+          <span class="status-badge status-{{ s.status }}">{{ s.get_status_display }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {# ── COACH ── #}
+  {% if user.is_coach %}
+  <div class="dashboard-grid">
+    <div class="stats-row" style="grid-column:1/-1">
+      <div class="stat-card"><span class="stat-value">{{ pending_diagnoses|length }}</span><span class="stat-label">Diagnósticos por revisar</span></div>
+      <div class="stat-card"><span class="stat-value">{{ pending_reviews|length }}</span><span class="stat-label">Casos pendientes</span></div>
+      <div class="stat-card"><span class="stat-value">{{ in_review|length }}</span><span class="stat-label">En revisión</span></div>
+      <div class="stat-card"><span class="stat-value">{{ managers_list|length }}</span><span class="stat-label">Gerentes activos</span></div>
+    </div>
+
+    {% if pending_diagnoses %}
+    <div class="card card-wide">
+      <h3>🎯 Diagnósticos pendientes de validación</h3>
+      <p style="font-size:.85rem;color:var(--text-2);margin-top:.3rem">Hasta que apruebes el diagnóstico, el gerente solo podrá ver el botón de las 5 preguntas (no el chatbox con IA).</p>
+      <ul class="session-list" style="margin-top:.8rem">
+        {% for d in pending_diagnoses %}
+        <li class="session-item">
+          <div>
+            <span class="session-title">{{ d.user.get_full_name }} — Diagnóstico inicial</span>
+            <span class="session-meta">{{ d.completed_at|date:"d/m/Y H:i" }}</span>
+          </div>
+          <a href="{% url 'coach_diagnosis_review' d.id %}" class="btn-secondary" style="font-size:.78rem;padding:.3rem .7rem">Revisar diagnóstico</a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {% if pending_reviews %}
+    <div class="card card-wide">
+      <h3>📋 Cola de revisión — sesiones de caso completadas</h3>
+      <ul class="session-list" style="margin-top:.8rem">
+        {% for s in pending_reviews %}
+        <li class="session-item">
+          <div>
+            <span class="session-title">{{ s.user.get_full_name }} — {{ s.case.title }}</span>
+            <span class="session-meta">{{ s.completed_at|date:"d/m/Y H:i" }}</span>
+          </div>
+          <a href="{% url 'coach_review' s.id %}" class="btn-secondary" style="font-size:.78rem;padding:.3rem .7rem">Revisar</a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+  <div class="card card-wide" style="margin-top: 1.5rem;">
+    <h3>🔍 Directorio de Gerentes y Respuestas</h3>
+    <div class="session-list" style="margin-top: 1rem;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+        <thead>
+          <tr style="text-align: left; color: var(--text-2); border-bottom: 1px solid var(--border);">
+            <th style="padding: 0.8rem;">Gerente</th>
+            <th style="padding: 0.8rem;">Última Actividad</th>
+            <th style="padding: 0.8rem;">Estado</th>
+            <th style="padding: 0.8rem;">Acción</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in all_sessions %}
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.8rem;">
+              <strong>{{ s.user.get_full_name }}</strong><br>
+              <span style="font-size: 0.75rem; color: var(--text-3)">{{ s.case.title }}</span>
+            </td>
+            <td style="padding: 0.8rem; color: var(--text-2)">{{ s.started_at|date:"d M, H:i" }}</td>
+            <td style="padding: 0.8rem;"><span class="status-badge status-{{ s.status }}">{{ s.get_status_display }}</span></td>
+            <td style="padding: 0.8rem;">
+              <a href="{% url 'coach_review' s.id %}" class="btn-ghost" style="padding: 0.2rem 0.5rem;">Ver respuestas</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── ADMIN ── #}
+  {% if user.is_admin_role %}
+  <div class="stats-row stats-row-lg">
+    <div class="stat-card"><span class="stat-value">{{ total_users }}</span><span class="stat-label">Usuarios totales</span></div>
+    <div class="stat-card"><span class="stat-value">{{ total_managers }}</span><span class="stat-label">Gerentes</span></div>
+    <div class="stat-card"><span class="stat-value">{{ total_coaches }}</span><span class="stat-label">Coaches</span></div>
+    <div class="stat-card"><span class="stat-value">{{ total_cases }}</span><span class="stat-label">Casos</span></div>
+    <div class="stat-card"><span class="stat-value">{{ active_sessions }}</span><span class="stat-label">Sesiones activas</span></div>
+    <div class="stat-card"><span class="stat-value">{{ pending_reviews }}</span><span class="stat-label">Pendientes coach</span></div>
+  </div>
+
+  <div class="dashboard-grid" style="margin-top:1.5rem">
+    <div class="card">
+      <h3>Gestión del sistema</h3>
+      <div style="display:flex;flex-direction:column;gap:.7rem;margin-top:1rem">
+        <a href="/admin/accounts/user/" class="btn-secondary">👤 Gestionar usuarios</a>
+        <a href="/admin/cases/managementcase/" class="btn-secondary">📁 Gestionar casos</a>
+        <a href="/admin/cases/casesession/" class="btn-secondary">💬 Ver sesiones</a>
+        <a href="/admin/cases/diagnosissession/" class="btn-secondary">🎯 Ver diagnósticos</a>
+      </div>
+    </div>
+
+    {% if ia_errors %}
+    <div class="card">
+      <h3>⚠️ Errores de IA recientes</h3>
+      <ul class="session-list" style="margin-top:.8rem">
+        {% for e in ia_errors %}
+        <li class="session-item" style="font-size:.8rem">
+          <span>{{ e.user.username }} — {{ e.error_type }}</span>
+          <span class="session-meta">{{ e.created_at|date:"d/m H:i" }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

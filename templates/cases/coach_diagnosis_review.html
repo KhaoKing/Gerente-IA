@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block title %}Revisión de Diagnóstico — Coach{% endblock %}
+{% block content %}
+<div class="dashboard-page">
+  <div class="dashboard-header">
+    <div>
+      <h1 class="dashboard-title">Revisión de diagnóstico inicial</h1>
+      <p class="dashboard-sub">{{ session.user.get_full_name }} — 5 preguntas situacionales</p>
+    </div>
+    <a href="{% url 'dashboard' %}" class="btn-ghost">← Volver</a>
+  </div>
+
+  <div class="dashboard-grid">
+    <!-- Transcripción del diagnóstico -->
+    <div class="card" style="grid-column:1/-1">
+      <h3>📝 Transcripción del diagnóstico</h3>
+      <div class="coach-transcript">
+        {% for msg in messages %}
+        <div class="transcript-msg transcript-{{ msg.role }}">
+          <div class="transcript-meta">
+            <strong>{% if msg.role == 'user' %}{{ session.user.get_full_name }}{% else %}Coach IA{% endif %}</strong>
+            <span>{{ msg.created_at|date:"d/m/Y H:i" }}</span>
+            {% if msg.question_number %}<span class="qr-tag">Pregunta {{ msg.question_number }}</span>{% endif %}
+          </div>
+          <p>{{ msg.content|linebreaksbr }}</p>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Formulario de dictamen del diagnóstico -->
+    <div class="card" style="grid-column:1/-1">
+      <h3>✍️ Tu dictamen — ¿el gerente puede avanzar al chatbox con IA?</h3>
+      <form method="post" class="profile-form">
+        {% csrf_token %}
+        <div class="form-group">
+          <label>Comentario sobre las respuestas del gerente</label>
+          <textarea name="coach_verdict" class="chat-textarea" rows="6"
+            placeholder="¿Las respuestas son coherentes? ¿Qué competencias muestra y cuáles debe reforzar?"
+            style="width:100%;padding:.8rem;background:var(--bg-3);border:1px solid var(--border);border-radius:var(--radius);color:var(--text)"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Decisión sobre el diagnóstico</label>
+          <div style="display:flex;gap:1rem;margin-top:.4rem">
+            <label class="verdict-option verdict-approve">
+              <input type="radio" name="coach_approved" value="true" required>
+              <span>✅ Aprobar — habilitar al gerente el chatbox con IA</span>
+            </label>
+            <label class="verdict-option verdict-reject">
+              <input type="radio" name="coach_approved" value="false">
+              <span>🔄 Rechazar — el gerente debe repetir el diagnóstico</span>
+            </label>
+          </div>
+        </div>
+        <button type="submit" class="btn-primary">Emitir dictamen del diagnóstico →</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    container_name: gerente_ia_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gerente_ia_db
+      POSTGRES_USER: gerente_user
+      POSTGRES_PASSWORD: gerente_pass
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

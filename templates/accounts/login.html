@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block title %}Iniciar Sesión — Gerente IA{% endblock %}
+{% block content %}
+<div class="login-page">
+  <div class="login-left">
+    <div class="login-brand">
+      <div class="brand-icon">G</div>
+      <h1 class="brand-name">Gerente<strong>IA</strong></h1>
+      <p class="brand-tagline">Plataforma de desarrollo y certificación gerencial</p>
+    </div>
+    <div class="login-features">
+      <div class="feature-item"><span class="feature-icon">🎯</span><div><h4>Diagnóstico personalizado</h4><p>5 preguntas situacionales para conocer tu nivel gerencial actual</p></div></div>
+      <div class="feature-item"><span class="feature-icon">🧠</span><div><h4>IA como coach</h4><p>Retroalimentación en tiempo real para desarrollar tus competencias</p></div></div>
+      <div class="feature-item"><span class="feature-icon">✅</span><div><h4>Validación humana</h4><p>Un Coach revisa y dictamina cada evaluación antes del resultado final</p></div></div>
+    </div>
+  </div>
+  <div class="login-right">
+    <div class="login-card">
+      <h2 class="login-title">Bienvenido/a</h2>
+      <p class="login-subtitle">Ingresa tus credenciales para continuar</p>
+      <form method="post" class="login-form">
+        {% csrf_token %}
+        <div class="form-group">
+          <label>{{ form.username.label }}</label>
+          {{ form.username }}
+          {% if form.username.errors %}<span class="field-error">{{ form.username.errors.0 }}</span>{% endif %}
+        </div>
+        <div class="form-group">
+          <label>{{ form.password.label }}</label>
+          {{ form.password }}
+          {% if form.password.errors %}<span class="field-error">{{ form.password.errors.0 }}</span>{% endif %}
+        </div>
+        {% if form.non_field_errors %}<div class="form-error">{{ form.non_field_errors.0 }}</div>{% endif %}
+        <button type="submit" class="btn-primary btn-full">Iniciar Sesión</button>
+      </form>
+      <p class="login-footer">¿Sin cuenta? Contacta al administrador del sistema.</p>
+    </div>
+  </div>
+</div>
+{% endblock %}

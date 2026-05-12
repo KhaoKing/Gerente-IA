@@ -1,0 +1,133 @@
+{% extends 'base.html' %}
+{% block title %}Diagnóstico Inicial — Gerente IA{% endblock %}
+{% block content %}
+<div class="chat-page diagnosis-page">
+  <aside class="chat-sidebar">
+    <div class="case-info">
+      <span class="case-difficulty difficulty-basico">DIAGNÓSTICO</span>
+      <h2 class="case-title">Evaluación inicial</h2>
+      <p class="case-category">5 preguntas situacionales</p>
+      <div class="case-desc">
+        La IA analizará tus respuestas para determinar tu nivel gerencial y asignarte la ruta de capacitación adecuada.<br><br>
+        Tu Coach revisará el resultado antes de confirmarlo.
+      </div>
+    </div>
+    <div class="diagnosis-progress">
+      <p class="progress-label">Progreso</p>
+      <div class="progress-bar">
+        <div class="progress-fill" style="width: {{ session.current_question|add:'-1' }}0%"></div>
+      </div>
+      <p class="progress-text">Pregunta {{ session.current_question }} de 5</p>
+    </div>
+    <div class="case-tips">
+      <h4>💡 Consejos</h4>
+      <ul>
+        <li>No hay respuestas correctas o incorrectas</li>
+        <li>Sé específico en tus respuestas</li>
+        <li>Describe qué harías tú en cada situación</li>
+        <li>Explica el porqué de tus decisiones</li>
+      </ul>
+    </div>
+  </aside>
+
+  <div class="chat-main">
+    <div class="chat-header">
+      <div class="chat-avatar">🤖</div>
+      <div>
+        <p class="chat-coach-name">Coach IA — Diagnóstico</p>
+        <p class="chat-status {% if session.status == 'en_progreso' %}status-online{% endif %}">
+          {% if session.status == 'en_progreso' %}Evaluando tu perfil{% else %}Diagnóstico completado{% endif %}
+        </p>
+      </div>
+    </div>
+
+    <div class="chat-messages" id="chatMessages">
+      {% for msg in messages %}
+      <div class="message message-{{ msg.role }}">
+        <div class="message-bubble">{{ msg.content|linebreaksbr }}</div>
+        <span class="message-time">{{ msg.created_at|date:"H:i" }}</span>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if session.status == 'en_progreso' %}
+    <div class="chat-input-area">
+      <div class="chat-input-wrapper">
+        <textarea id="messageInput" class="chat-textarea" placeholder="Describe cómo manejarías esta situación..." rows="2"></textarea>
+        <button id="sendBtn" class="btn-send">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+        </button>
+      </div>
+      <p class="chat-hint">Presiona <kbd>Enter</kbd> para enviar · <kbd>Shift+Enter</kbd> para nueva línea</p>
+    </div>
+    {% else %}
+    <div class="chat-closed">
+      <p>✅ Diagnóstico completado. Tu Coach revisará los resultados y te asignará tu nivel. <a href="{% url 'dashboard' %}">Volver al dashboard →</a></p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const SEND_URL = "{% url 'diagnosis_send' %}";
+const CSRF_TOKEN = "{{ csrf_token }}";
+const chatMessages = document.getElementById('chatMessages');
+const messageInput = document.getElementById('messageInput');
+const sendBtn = document.getElementById('sendBtn');
+
+function scrollToBottom() { chatMessages.scrollTop = chatMessages.scrollHeight; }
+function formatTime(d) { return d.toLocaleTimeString('es-MX', {hour:'2-digit',minute:'2-digit'}); }
+
+function appendMessage(role, content, time) {
+  const div = document.createElement('div');
+  div.className = `message message-${role}`;
+  div.innerHTML = `<div class="message-bubble">${content.replace(/\n/g,'<br>').replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')}</div><span class="message-time">${time}</span>`;
+  chatMessages.appendChild(div);
+  scrollToBottom();
+}
+
+function showTyping() {
+  const div = document.createElement('div');
+  div.className = 'message message-assistant typing-indicator'; div.id = 'typingIndicator';
+  div.innerHTML = `<div class="message-bubble"><span></span><span></span><span></span></div>`;
+  chatMessages.appendChild(div); scrollToBottom();
+}
+function removeTyping() { const el = document.getElementById('typingIndicator'); if(el) el.remove(); }
+
+async function sendMessage() {
+  const text = messageInput.value.trim();
+  if (!text) return;
+  appendMessage('user', text, formatTime(new Date()));
+  messageInput.value = '';
+  sendBtn.disabled = true;
+  showTyping();
+  try {
+    const res = await fetch(SEND_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','X-CSRFToken':CSRF_TOKEN},
+      body: JSON.stringify({message: text}),
+    });
+    const data = await res.json();
+    removeTyping();
+    // Si la respuesta del usuario fue rechazada por ininteligible, mostrarlo sin avanzar la pregunta.
+    if (data.is_invalid_input) {
+      appendMessage('assistant', data.response, data.timestamp);
+      return;
+    }
+    if (data.response) appendMessage('assistant', data.response, data.timestamp);
+    if (data.session_status === 'completado') {
+      document.querySelector('.chat-input-area').innerHTML = `<div class="chat-closed"><p>✅ Diagnóstico completado. Tu Coach revisará los resultados. <a href="/dashboard/">Volver al dashboard →</a></p></div>`;
+    }
+  } catch(e) {
+    removeTyping();
+    appendMessage('system', 'Error de conexión. Intenta de nuevo.', formatTime(new Date()));
+  } finally { sendBtn.disabled = false; }
+}
+
+sendBtn?.addEventListener('click', sendMessage);
+messageInput?.addEventListener('keydown', e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage();} });
+scrollToBottom();
+</script>
+{% endblock %}
