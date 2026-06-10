@@ -4,8 +4,12 @@
 <div class="profile-page">
   <div class="profile-header">
     <div class="profile-header-icon">👤</div>
-    <h1>Cuéntanos sobre ti</h1>
+    <h1>Completa tus datos</h1>
+    {% if is_admin_or_mae %}
+    <p>Antes de continuar, necesitamos tu nombre para personalizar tu experiencia.</p>
+    {% else %}
     <p>Esta información personaliza los casos gerenciales para tu contexto profesional.</p>
+    {% endif %}
   </div>
   <div class="profile-card">
     <form method="post" class="profile-form">
@@ -17,6 +21,7 @@
           <div class="form-group"><label>{{ form.last_name.label }}</label>{{ form.last_name }}</div>
         </div>
       </div>
+      {% if not is_admin_or_mae %}
       <div class="form-section">
         <h3 class="section-title">Contexto Profesional</h3>
         <div class="form-row">
@@ -33,6 +38,7 @@
         <h3 class="section-title">Tu Mayor Reto</h3>
         <div class="form-group"><label>{{ form.main_challenge.label }}</label>{{ form.main_challenge }}</div>
       </div>
+      {% endif %}
       <button type="submit" class="btn-primary btn-full">Guardar y Continuar →</button>
     </form>
   </div>

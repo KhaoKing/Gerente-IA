@@ -9,7 +9,7 @@
       <p class="case-category">5 preguntas situacionales</p>
       <div class="case-desc">
         La IA analizará tus respuestas para determinar tu nivel gerencial y asignarte la ruta de capacitación adecuada.<br><br>
-        Tu Coach revisará el resultado antes de confirmarlo.
+        Tu MAE revisará el resultado antes de confirmarlo.
       </div>
     </div>
     <div class="diagnosis-progress">
@@ -34,7 +34,7 @@
     <div class="chat-header">
       <div class="chat-avatar">🤖</div>
       <div>
-        <p class="chat-coach-name">Coach IA — Diagnóstico</p>
+        <p class="chat-mae-name">MAE IA — Diagnóstico</p>
         <p class="chat-status {% if session.status == 'en_progreso' %}status-online{% endif %}">
           {% if session.status == 'en_progreso' %}Evaluando tu perfil{% else %}Diagnóstico completado{% endif %}
         </p>
@@ -62,7 +62,7 @@
     </div>
     {% else %}
     <div class="chat-closed">
-      <p>✅ Diagnóstico completado. Tu Coach revisará los resultados y te asignará tu nivel. <a href="{% url 'dashboard' %}">Volver al dashboard →</a></p>
+      <p>✅ Diagnóstico completado. Tu MAE revisará los resultados y te asignará tu nivel. <a href="{% url 'dashboard' %}">Volver al dashboard →</a></p>
     </div>
     {% endif %}
   </div>
@@ -118,7 +118,7 @@ async function sendMessage() {
     }
     if (data.response) appendMessage('assistant', data.response, data.timestamp);
     if (data.session_status === 'completado') {
-      document.querySelector('.chat-input-area').innerHTML = `<div class="chat-closed"><p>✅ Diagnóstico completado. Tu Coach revisará los resultados. <a href="/dashboard/">Volver al dashboard →</a></p></div>`;
+      document.querySelector('.chat-input-area').innerHTML = `<div class="chat-closed"><p>✅ Diagnóstico completado. Tu MAE revisará los resultados. <a href="/dashboard/">Volver al dashboard →</a></p></div>`;
     }
   } catch(e) {
     removeTyping();

@@ -81,15 +81,12 @@ LOGIN_URL = '/accounts/login/'
 LOGIN_REDIRECT_URL = '/dashboard/'
 LOGOUT_REDIRECT_URL = '/accounts/login/'
 
-# Claude API (no usada actualmente)
-CLAUDE_API_KEY = ''
-CLAUDE_MODEL = 'claude-sonnet-4-20250514'
-
-# Gemini API — motor de IA activo
-# Configurar en variables de entorno (.env) o reemplazar aquí.
 import os
+
+# Gemini API — motor de IA (plan gratuito con rate limits)
+# Obtén tu API key gratis en: https://aistudio.google.com/apikey
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
-GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-1.5-flash-latest')
+GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-3.5-flash')
 
 # Email para notificaciones al admin cuando la IA falla
 ADMIN_EMAIL = 'admin@gerenteIA.com'

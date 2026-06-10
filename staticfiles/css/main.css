@@ -27,7 +27,7 @@ input,textarea,select{font-family:var(--font-body)}
 .nav-username{font-size:.875rem;color:var(--text-2)}
 .nav-role-badge{font-size:.7rem;font-weight:600;padding:.2rem .6rem;border-radius:999px;text-transform:uppercase;letter-spacing:.05em}
 .role-gerente{background:rgba(79,142,247,.15);color:var(--accent)}
-.role-coach{background:rgba(124,106,245,.15);color:var(--accent-2)}
+.role-mae{background:rgba(124,106,245,.15);color:var(--accent-2)}
 .role-admin{background:rgba(62,207,142,.15);color:var(--accent-green)}
 .btn-logout{font-size:.8rem;padding:.35rem .8rem;border-radius:8px;border:1px solid var(--border);color:var(--text-2);transition:all .2s}
 .btn-logout:hover{border-color:var(--text-2);color:var(--text);text-decoration:none}
@@ -150,7 +150,7 @@ input,textarea,select{font-family:var(--font-body)}
 .chat-main{display:flex;flex-direction:column;overflow:hidden}
 .chat-header{display:flex;align-items:center;gap:.8rem;padding:1rem 1.5rem;border-bottom:1px solid var(--border);background:var(--bg-2);flex-shrink:0}
 .chat-avatar{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-2));display:grid;place-items:center;font-size:1.1rem;flex-shrink:0}
-.chat-coach-name{font-weight:600;font-size:.9rem}
+.chat-mae-name{font-weight:600;font-size:.9rem}
 .chat-status{font-size:.75rem;color:var(--text-3)}
 .status-online{color:var(--accent-green)}
 .status-online::before{content:'● '}
@@ -202,8 +202,8 @@ input,textarea,select{font-family:var(--font-body)}
 .chat-hint kbd{background:var(--bg-3);border:1px solid var(--border);border-radius:4px;padding:0 .3rem;font-size:.7rem}
 .chat-closed{padding:1.2rem 1.5rem;border-top:1px solid var(--border);text-align:center;font-size:.875rem;color:var(--text-2);background:var(--bg-2)}
 
-/* ── Coach review ── */
-.coach-transcript{display:flex;flex-direction:column;gap:1rem;margin-top:1rem;max-height:400px;overflow-y:auto;padding-right:.5rem}
+/* ── MAE review ── */
+.mae-transcript{display:flex;flex-direction:column;gap:1rem;margin-top:1rem;max-height:400px;overflow-y:auto;padding-right:.5rem}
 .transcript-msg{padding:.9rem 1rem;border-radius:12px;font-size:.875rem}
 .transcript-user{background:rgba(79,142,247,.07);border-left:3px solid var(--accent)}
 .transcript-assistant{background:var(--bg-3);border-left:3px solid var(--accent-2)}

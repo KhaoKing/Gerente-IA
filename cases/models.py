@@ -33,9 +33,9 @@ class ManagementCase(models.Model):
 class DiagnosisSession(models.Model):
     STATUS_CHOICES = [
         ('en_progreso', 'En Progreso'),
-        ('completado', 'Completado — esperando revisión coach'),
-        ('aprobado', 'Aprobado por Coach'),
-        ('rechazado', 'Rechazado por Coach'),
+        ('completado', 'Completado — esperando revisión MAE'),
+        ('aprobado', 'Aprobado por MAE'),
+        ('rechazado', 'Rechazado por MAE'),
         ('nivel_asignado', 'Nivel Asignado'),
     ]
 
@@ -44,14 +44,14 @@ class DiagnosisSession(models.Model):
     current_question = models.IntegerField(default=1)   # 1 al 5
     ia_level_suggestion = models.CharField(max_length=20, blank=True)
     ia_summary = models.TextField('Resumen IA del diagnóstico', blank=True)
-    # Validación del coach sobre las 5 preguntas
-    coach = models.ForeignKey(
+    # Validación del MAE sobre las 5 preguntas
+    mae = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True,
-        related_name='reviewed_diagnoses', limit_choices_to={'role': 'coach'}
+        related_name='reviewed_diagnoses', limit_choices_to={'role': 'mae'}
     )
-    coach_approved = models.BooleanField(null=True, blank=True)   # True=aprobado, False=rechazado
-    coach_verdict = models.TextField('Dictamen del Coach sobre el diagnóstico', blank=True)
-    coach_reviewed_at = models.DateTimeField(null=True, blank=True)
+    mae_approved = models.BooleanField(null=True, blank=True)   # True=aprobado, False=rechazado
+    mae_verdict = models.TextField('Dictamen del MAE sobre el diagnóstico', blank=True)
+    mae_reviewed_at = models.DateTimeField(null=True, blank=True)
     started_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
@@ -81,24 +81,31 @@ class DiagnosisMessage(models.Model):
 class CaseSession(models.Model):
     STATUS_CHOICES = [
         ('en_progreso', 'En Progreso'),
-        ('completado', 'Completado — pendiente revisión coach'),
-        ('en_revision', 'En Revisión por Coach'),
+        ('completado', 'Completado — pendiente revisión MAE'),
+        ('en_revision', 'En Revisión por MAE'),
         ('evaluado', 'Evaluado'),
+    ]
+    PHASE_CHOICES = [
+        ('ambiguity', 'Fase 1: Ambigüedad'),
+        ('pressure', 'Fase 2: Presión'),
+        ('dilemma', 'Fase 3: Dilema'),
+        ('completed', 'Fases Completadas'),
     ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='case_sessions')
     case = models.ForeignKey(ManagementCase, on_delete=models.CASCADE, related_name='sessions')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='en_progreso')
+    current_phase = models.CharField(max_length=20, choices=PHASE_CHOICES, default='ambiguity')
     score = models.IntegerField('Puntuación IA', null=True, blank=True)
     ia_feedback = models.TextField('Retroalimentación IA', blank=True)
-    # Dictamen del Coach
-    coach = models.ForeignKey(
+    # Dictamen del MAE
+    mae = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True,
-        related_name='reviewed_sessions', limit_choices_to={'role': 'coach'}
+        related_name='reviewed_sessions', limit_choices_to={'role': 'mae'}
     )
-    coach_verdict = models.TextField('Dictamen del Coach', blank=True)
-    coach_approved = models.BooleanField(null=True, blank=True)   # True=aprobado, False=rechazado
-    coach_reviewed_at = models.DateTimeField(null=True, blank=True)
+    mae_verdict = models.TextField('Dictamen del MAE', blank=True)
+    mae_approved = models.BooleanField(null=True, blank=True)   # True=aprobado, False=rechazado
+    mae_reviewed_at = models.DateTimeField(null=True, blank=True)
     started_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
@@ -127,6 +134,10 @@ class ChatMessage(models.Model):
     message_type = models.CharField(max_length=20, choices=MESSAGE_TYPE_CHOICES, default='normal')
     # Para quick replies: guardamos la opción elegida y la razón dada
     quick_reply_option = models.CharField(max_length=50, blank=True)   # 'agree'|'disagree'|'incomplete'
+    # Tiempo que tardó el gerente en responder desde el último mensaje de la IA (en segundos)
+    response_time_seconds = models.FloatField('Tiempo de respuesta (seg)', null=True, blank=True)
+    # Tiempo acumulado de pausas >= 5s mientras escribía (en segundos)
+    total_pause_seconds = models.FloatField('Tiempo en pausa (seg)', null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

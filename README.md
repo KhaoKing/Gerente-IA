@@ -2,7 +2,7 @@
 
 Plataforma de capacitación y certificación gerencial con IA.
 
-**Stack:** Django 4.2 · PostgreSQL (Docker) · Python 3.10+
+**Stack:** Django 4.2 · PostgreSQL (Docker) · Python 3.11+
 
 ---
 
@@ -10,14 +10,14 @@ Plataforma de capacitación y certificación gerencial con IA.
 
 Asegúrate de tener instalado en tu sistema:
 
-- [Conda](https://docs.conda.io/en/latest/miniconda.html) (Miniconda o Anaconda)
 - [Docker](https://docs.docker.com/engine/install/) + [Docker Compose](https://docs.docker.com/compose/install/)
+- Python 3.11+
 - Git
 
 Verifica que los servicios estén activos:
 
 ```bash
-conda --version
+python3 --version
 docker --version
 docker compose version
 ```
@@ -33,21 +33,21 @@ cd gerente_ia
 
 ---
 
-## 2. Crear el entorno virtual con Conda
+## 2. Crear el entorno virtual
 
 ```bash
 # Crear entorno con Python 3.11
-conda create -n gerente_ia python=3.11 -y
+python3 -m venv GerenteIA
 
 # Activar el entorno
-conda activate gerente_ia
+source GerenteIA/bin/activate
 
 # Instalar dependencias
 pip install -r requirements.txt
 ```
 
-> Para desactivar el entorno cuando termines: `conda deactivate`  
-> Para eliminarlo si lo necesitas: `conda env remove -n gerente_ia`
+> Para desactivar el entorno cuando termines: `deactivate`  
+> Para eliminarlo si lo necesitas: `rm -rf GerenteIA`
 
 ---
 
@@ -112,7 +112,7 @@ DATABASES = {
 
 ## 5. Migraciones y datos iniciales
 
-Con el entorno Conda activo y el contenedor Docker corriendo:
+Con el entorno virtual activo y el contenedor Docker corriendo:
 
 ```bash
 # Generar migraciones
@@ -144,7 +144,7 @@ Abre en tu navegador: [http://127.0.0.1:8000](http://127.0.0.1:8000)
 | Usuario | Contraseña | Rol | Notas |
 |---------|-----------|-----|-------|
 | `admin` | `admin123` | Administrador | Acceso a `/admin/` |
-| `coach1` | `coach123` | Coach | Vista de gerentes y sesiones |
+| `mae1` | `mae123` | MAE | Vista de gerentes y sesiones |
 | `gerente1` | `gerente123` | Gerente | Sin perfil completado (flujo completo) |
 
 > Al hacer login con `gerente1` se redirige automáticamente al formulario de perfil antes de ver el dashboard.
@@ -156,7 +156,7 @@ Abre en tu navegador: [http://127.0.0.1:8000](http://127.0.0.1:8000)
 ```
 Login
   ├── Admin    → Dashboard con métricas + panel /admin/
-  ├── Coach    → Dashboard con lista de gerentes y sesiones
+  ├── MAE    → Dashboard con lista de gerentes y sesiones
   └── Gerente
         ├── (primer login) → Completar perfil
         └── Dashboard → Iniciar caso → Chatbox con IA
@@ -168,7 +168,7 @@ Login
 
 ```bash
 # Activar entorno
-conda activate gerente_ia
+source GerenteIA/bin/activate
 
 # Iniciar base de datos (si el contenedor está detenido)
 docker compose up -d
@@ -250,8 +250,8 @@ CLAUDE_API_KEY = 'sk-ant-...'
 **Error: `could not connect to server`**
 → El contenedor de Docker no está corriendo. Ejecuta `docker compose up -d`.
 
-**Error: `conda: command not found`**
-→ Conda no está en el PATH. Reinicia la terminal o ejecuta `source ~/miniconda3/etc/profile.d/conda.sh`.
+**Error: `python3: command not found`**
+→ Python no está instalado o no está en el PATH. Instala Python 3.11+.
 
 **Error: `relation does not exist`**
 → Faltan migraciones. Ejecuta `python manage.py migrate`.

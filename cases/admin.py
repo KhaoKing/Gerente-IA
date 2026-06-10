@@ -11,8 +11,8 @@ class ManagementCaseAdmin(admin.ModelAdmin):
 
 @admin.register(CaseSession)
 class CaseSessionAdmin(admin.ModelAdmin):
-    list_display = ('user', 'case', 'status', 'coach_approved', 'started_at')
-    list_filter = ('status', 'coach_approved')
+    list_display = ('user', 'case', 'status', 'mae_approved', 'started_at')
+    list_filter = ('status', 'mae_approved')
     readonly_fields = ('started_at',)
 
 
@@ -24,8 +24,8 @@ class ChatMessageAdmin(admin.ModelAdmin):
 
 @admin.register(DiagnosisSession)
 class DiagnosisSessionAdmin(admin.ModelAdmin):
-    list_display = ('user', 'status', 'current_question', 'coach_approved', 'coach', 'started_at')
-    list_filter = ('status', 'coach_approved')
+    list_display = ('user', 'status', 'current_question', 'mae_approved', 'mae', 'started_at')
+    list_filter = ('status', 'mae_approved')
 
 
 @admin.register(DiagnosisMessage)

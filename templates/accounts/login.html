@@ -10,8 +10,8 @@
     </div>
     <div class="login-features">
       <div class="feature-item"><span class="feature-icon">🎯</span><div><h4>Diagnóstico personalizado</h4><p>5 preguntas situacionales para conocer tu nivel gerencial actual</p></div></div>
-      <div class="feature-item"><span class="feature-icon">🧠</span><div><h4>IA como coach</h4><p>Retroalimentación en tiempo real para desarrollar tus competencias</p></div></div>
-      <div class="feature-item"><span class="feature-icon">✅</span><div><h4>Validación humana</h4><p>Un Coach revisa y dictamina cada evaluación antes del resultado final</p></div></div>
+      <div class="feature-item"><span class="feature-icon">🧠</span><div><h4>IA como MAE</h4><p>Retroalimentación en tiempo real para desarrollar tus competencias</p></div></div>
+      <div class="feature-item"><span class="feature-icon">✅</span><div><h4>Validación humana</h4><p>Un MAE revisa y dictamina cada evaluación antes del resultado final</p></div></div>
     </div>
   </div>
   <div class="login-right">
@@ -33,7 +33,7 @@
         {% if form.non_field_errors %}<div class="form-error">{{ form.non_field_errors.0 }}</div>{% endif %}
         <button type="submit" class="btn-primary btn-full">Iniciar Sesión</button>
       </form>
-      <p class="login-footer">¿Sin cuenta? Contacta al administrador del sistema.</p>
+      <p class="login-footer">¿Sin cuenta? <a href="{% url 'register' %}" style="color:var(--accent);font-weight:600">Regístrate aquí</a></p>
     </div>
   </div>
 </div>

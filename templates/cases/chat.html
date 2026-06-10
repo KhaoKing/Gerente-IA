@@ -7,6 +7,9 @@
       <span class="case-difficulty difficulty-{{ case.difficulty }}">{{ case.get_difficulty_display }}</span>
       <h2 class="case-title">{{ case.title }}</h2>
       <span class="case-category">{{ case.get_category_display }}</span>
+      {% if current_phase_label %}
+      <div class="phase-badge">{{ current_phase_label }}</div>
+      {% endif %}
       <div class="case-desc">{{ case.description }}</div>
     </div>
     <div class="case-tips">
@@ -25,9 +28,9 @@
     <div class="chat-header">
       <div class="chat-avatar">🤖</div>
       <div>
-        <p class="chat-coach-name">Coach IA</p>
+        <p class="chat-mae-name">MAE IA</p>
         <p class="chat-status {% if session.status == 'en_progreso' %}status-online{% endif %}">
-          {% if session.status == 'en_progreso' %}En línea{% else %}Sesión finalizada — pendiente revisión del Coach{% endif %}
+          {% if session.status == 'en_progreso' %}En línea{% else %}Sesión finalizada — pendiente revisión del MAE{% endif %}
         </p>
       </div>
     </div>
@@ -80,7 +83,7 @@
 
     {% else %}
     <div class="chat-closed">
-      <p>Sesión finalizada. Tu Coach revisará esta sesión y emitirá el dictamen. Tu Coach también liberará el siguiente caso cuando corresponda.</p>
+      <p>Sesión finalizada. Tu MAE revisará esta sesión y emitirá el dictamen. Tu MAE también liberará el siguiente caso cuando corresponda.</p>
     </div>
     {% endif %}
   </div>
@@ -94,8 +97,51 @@ const CSRF_TOKEN = "{{ csrf_token }}";
 const chatMessages = document.getElementById('chatMessages');
 const messageInput = document.getElementById('messageInput');
 const sendBtn = document.getElementById('sendBtn');
+const LAST_AI_TIME = "{{ last_ai_timestamp }}";
+let lastAiTimestamp = LAST_AI_TIME ? new Date(LAST_AI_TIME) : null;
 
 let activeQuickOption = '';
+
+// ── Detección de pausas al escribir ────────────────────────────────────────────
+let typingPauseTimer = null;
+let pauseAccumulator = 0;
+let pauseTickInterval = null;
+const PAUSE_THRESHOLD = 5; // segundos
+
+function startPauseDetection() {
+  clearInterval(pauseTickInterval);
+  pauseTickInterval = null;
+  clearTimeout(typingPauseTimer);
+  typingPauseTimer = setTimeout(() => {
+    // El usuario lleva 5+ seg sin escribir: empezamos a acumular
+    pauseTickInterval = setInterval(() => {
+      pauseAccumulator += 1;
+    }, 1000);
+  }, PAUSE_THRESHOLD * 1000);
+}
+
+function resetPauseDetection() {
+  clearTimeout(typingPauseTimer);
+  if (pauseTickInterval) {
+    clearInterval(pauseTickInterval);
+    pauseTickInterval = null;
+  }
+  // Si había un contador activo, reiniciamos la cuenta atrás
+  typingPauseTimer = setTimeout(() => {
+    pauseTickInterval = setInterval(() => {
+      pauseAccumulator += 1;
+    }, 1000);
+  }, PAUSE_THRESHOLD * 1000);
+}
+
+messageInput?.addEventListener('input', resetPauseDetection);
+messageInput?.addEventListener('focus', startPauseDetection);
+messageInput?.addEventListener('blur', () => {
+  clearTimeout(typingPauseTimer);
+  clearInterval(pauseTickInterval);
+  pauseTickInterval = null;
+});
+
 const QR_LABELS = {
   agree: '¿Por qué estás de acuerdo? Explica tu razonamiento.',
   disagree: '¿Por qué no estás de acuerdo? ¿Cuál sería tu alternativa?',
@@ -158,12 +204,32 @@ async function sendMessage() {
 async function postMessage(text, qrOption, qrReason) {
   appendMessage('user', text, formatTime(new Date()), false, qrOption ? 'respuesta rápida' : '');
   if(sendBtn) sendBtn.disabled = true;
+
+  // Calcular tiempo de respuesta desde el último mensaje de la IA
+  let responseTimeSeconds = null;
+  if (lastAiTimestamp) {
+    responseTimeSeconds = Math.round((Date.now() - lastAiTimestamp.getTime()) / 1000);
+  }
+
+  // Obtener y resetear pausas acumuladas
+  const totalPauseSeconds = pauseAccumulator;
+  pauseAccumulator = 0;
+  clearTimeout(typingPauseTimer);
+  clearInterval(pauseTickInterval);
+  pauseTickInterval = null;
+
   showTyping();
   try {
     const res = await fetch(SEND_URL, {
       method: 'POST',
       headers: {'Content-Type':'application/json','X-CSRFToken':CSRF_TOKEN},
-      body: JSON.stringify({message: text, quick_reply_option: qrOption, quick_reply_reason: qrReason}),
+      body: JSON.stringify({
+        message: text,
+        quick_reply_option: qrOption,
+        quick_reply_reason: qrReason,
+        response_time_seconds: responseTimeSeconds,
+        total_pause_seconds: totalPauseSeconds,
+      }),
     });
     const data = await res.json();
     removeTyping();
@@ -172,10 +238,14 @@ async function postMessage(text, qrOption, qrReason) {
       appendMessage('assistant', data.response, data.timestamp, true);
       return;
     }
-    if (data.response) appendMessage('assistant', data.response, data.timestamp, data.is_error || false);
+    if (data.response) {
+      appendMessage('assistant', data.response, data.timestamp, data.is_error || false);
+      // Actualizar timestamp del último mensaje de IA
+      lastAiTimestamp = new Date();
+    }
     if (data.session_status && data.session_status !== 'en_progreso') {
       document.querySelector('.quick-replies')?.remove();
-      document.querySelector('.chat-input-area').innerHTML = `<div class="chat-closed"><p>Sesión finalizada. Tu Coach revisará esta sesión.</p></div>`;
+      document.querySelector('.chat-input-area').innerHTML = `<div class="chat-closed"><p>Sesión finalizada. Tu MAE revisará esta sesión.</p></div>`;
     }
   } catch(e) {
     removeTyping();
@@ -186,6 +256,13 @@ async function postMessage(text, qrOption, qrReason) {
 sendBtn?.addEventListener('click', sendMessage);
 messageInput?.addEventListener('keydown', e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage();} });
 document.getElementById('qrReason')?.addEventListener('keydown', e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendQuickReply();} });
+document.getElementById('qrReason')?.addEventListener('input', resetPauseDetection);
+document.getElementById('qrReason')?.addEventListener('focus', startPauseDetection);
+document.getElementById('qrReason')?.addEventListener('blur', () => {
+  clearTimeout(typingPauseTimer);
+  clearInterval(pauseTickInterval);
+  pauseTickInterval = null;
+});
 scrollToBottom();
 </script>
 {% endblock %}

@@ -5,7 +5,7 @@ from django.db import models
 class User(AbstractUser):
     ROLE_CHOICES = [
         ('admin', 'Administrador'),
-        ('coach', 'Coach'),
+        ('mae', 'MAE'),
         ('gerente', 'Gerente'),
     ]
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='gerente')
@@ -17,7 +17,7 @@ class User(AbstractUser):
     @property
     def is_admin_role(self): return self.role == 'admin' or self.is_superuser
     @property
-    def is_coach(self): return self.role == 'coach'
+    def is_mae(self): return self.role == 'mae'
     @property
     def is_gerente(self): return self.role == 'gerente'
 

@@ -8,7 +8,7 @@ from .models import ManagementCase, CaseSession, ChatMessage, DiagnosisSession, 
 from .ai_engine import (
     get_ai_response, get_diagnosis_response, get_ia_error_message,
     notify_admin_ia_error, DIAGNOSIS_QUESTIONS, FINISH_TRIGGERS,
-    validate_user_message,
+    validate_user_message, _should_advance_phase, PHASE_LABELS,
 )
 
 
@@ -21,7 +21,7 @@ def dashboard(request):
 
     if user.is_gerente:
         # Estado del diagnóstico — define qué hace el botón único del dashboard
-        # Estados posibles: 'no_iniciado', 'en_progreso', 'esperando_coach', 'aprobado', 'rechazado'
+        # Estados posibles: 'no_iniciado', 'en_progreso', 'esperando_mae', 'aprobado', 'rechazado'
         diagnosis_state = 'no_iniciado'
         diagnosis_session = None
         try:
@@ -30,10 +30,10 @@ def dashboard(request):
                 diagnosis_state = 'en_progreso'
             elif diagnosis_session.status == 'rechazado':
                 diagnosis_state = 'rechazado'
-            elif diagnosis_session.coach_approved is True or diagnosis_session.status in ('aprobado', 'nivel_asignado'):
+            elif diagnosis_session.mae_approved is True or diagnosis_session.status in ('aprobado', 'nivel_asignado'):
                 diagnosis_state = 'aprobado'
             elif diagnosis_session.status == 'completado':
-                diagnosis_state = 'esperando_coach'
+                diagnosis_state = 'esperando_mae'
         except DiagnosisSession.DoesNotExist:
             diagnosis_state = 'no_iniciado'
 
@@ -53,20 +53,20 @@ def dashboard(request):
             'available_cases': ManagementCase.objects.filter(is_active=True).count(),
         })
 
-    elif user.is_coach:
+    elif user.is_mae:
         from accounts.models import User as UserModel
-        # Diagnósticos completados esperando validación del coach
+        # Diagnósticos completados esperando validación del MAE
         pending_diagnoses = DiagnosisSession.objects.filter(
             status='completado'
         ).select_related('user').order_by('-completed_at')
 
-        # Sesiones de caso pendientes de revisión — la cola de trabajo del coach
+        # Sesiones de caso pendientes de revisión — la cola de trabajo del MAE
         pending_reviews = CaseSession.objects.filter(
             status='completado'
         ).select_related('user', 'case').order_by('-completed_at')
 
         in_review = CaseSession.objects.filter(
-            coach=user, status='en_revision'
+            mae=user, status='en_revision'
         ).select_related('user', 'case')
         all_manager_sessions = CaseSession.objects.select_related('user', 'case').order_by('-started_at')
 
@@ -86,7 +86,7 @@ def dashboard(request):
         context.update({
             'total_users': UserModel.objects.count(),
             'total_managers': UserModel.objects.filter(role='gerente').count(),
-            'total_coaches': UserModel.objects.filter(role='coach').count(),
+            'total_maes': UserModel.objects.filter(role='mae').count(),
             'total_cases': ManagementCase.objects.count(),
             'active_sessions': CaseSession.objects.filter(status='en_progreso').count(),
             'pending_reviews': CaseSession.objects.filter(status='completado').count(),
@@ -109,13 +109,13 @@ def start_diagnosis(request):
         if session.status == 'en_progreso':
             return redirect('diagnosis_chat')
         if session.status == 'rechazado':
-            # El coach rechazó: reiniciamos el diagnóstico reusando la misma sesión
+            # El MAE rechazó: reiniciamos el diagnóstico reusando la misma sesión
             session.messages.all().delete()
             session.status = 'en_progreso'
             session.current_question = 1
-            session.coach_approved = None
-            session.coach_verdict = ''
-            session.coach_reviewed_at = None
+            session.mae_approved = None
+            session.mae_verdict = ''
+            session.mae_reviewed_at = None
             session.completed_at = None
             session.save()
             # También reseteamos la bandera del perfil
@@ -129,7 +129,7 @@ def start_diagnosis(request):
             DiagnosisMessage.objects.create(
                 session=session, role='assistant',
                 content=(
-                    "Vamos a repetir el diagnóstico según indicó tu Coach.\n\n"
+                    "Vamos a repetir el diagnóstico según indicó tu MAE.\n\n"
                     "Responde con frases completas y describe claramente qué harías y por qué.\n\n"
                     "---\n\n"
                     f"{first_q['text']}"
@@ -137,11 +137,11 @@ def start_diagnosis(request):
                 question_number=1,
             )
             return redirect('diagnosis_chat')
-        if session.coach_approved is True or session.status in ('aprobado', 'nivel_asignado'):
+        if session.mae_approved is True or session.status in ('aprobado', 'nivel_asignado'):
             # Ya aprobado: no se reinicia
             return redirect('dashboard')
         if session.status == 'completado':
-            # Esperando coach
+            # Esperando MAE
             return redirect('dashboard')
     except DiagnosisSession.DoesNotExist:
         pass
@@ -153,7 +153,7 @@ def start_diagnosis(request):
     DiagnosisMessage.objects.create(
         session=session, role='assistant',
         content=(
-            "¡Hola! Soy tu Coach IA.\n\n"
+            "¡Hola! Soy tu MAE IA.\n\n"
             "Antes de comenzar tu programa de capacitación, necesito conocer tu nivel "
             "gerencial actual. Te haré **5 preguntas situacionales** — no hay respuestas "
             "correctas o incorrectas, solo quiero entender cómo piensas y decides.\n\n"
@@ -221,7 +221,7 @@ def diagnosis_send(request):
         session.completed_at = timezone.now()
         session.save()
 
-        # Marcar perfil como diagnóstico completado (nivel se asigna cuando el coach lo revise)
+        # Marcar perfil como diagnóstico completado (nivel se asigna cuando el MAE lo revise)
         try:
             profile = request.user.manager_profile
             profile.diagnosis_completed = True
@@ -256,14 +256,14 @@ def diagnosis_send(request):
 @login_required
 def start_case(request):
     # Los gerentes solo pueden iniciar caso con la IA si su diagnóstico ya fue
-    # aprobado por el coach. Antes de eso, su único botón disponible es el del
+    # aprobado por el MAE. Antes de eso, su único botón disponible es el del
     # diagnóstico inicial (5 preguntas).
     if request.user.is_gerente:
         try:
             d_session = request.user.diagnosis_session
         except DiagnosisSession.DoesNotExist:
             return redirect('start_diagnosis')
-        if not (d_session.coach_approved is True or d_session.status in ('aprobado', 'nivel_asignado')):
+        if not (d_session.mae_approved is True or d_session.status in ('aprobado', 'nivel_asignado')):
             return redirect('dashboard')
 
     completed_ids = CaseSession.objects.filter(
@@ -290,16 +290,18 @@ def start_case(request):
     if not case:
         return redirect('dashboard')
 
-    session = CaseSession.objects.create(user=request.user, case=case)
+    session = CaseSession.objects.create(user=request.user, case=case, current_phase='ambiguity')
     ChatMessage.objects.create(
         session=session, role='assistant',
         content=(
             f"**Caso: {case.title}**\n\n"
             f"{case.description}\n\n"
             "---\n"
-            "Analiza la situación y comparte cómo la abordarías como gerente. "
-            "Puedes usar los botones de respuesta rápida o escribir libremente.\n\n"
-            "Escribe **'evaluar'** cuando quieras recibir tu retroalimentación final."
+            "**Fase 1 — Ambigüedad**\n\n"
+            "Has leído el caso. Antes de lanzarte a una solución, detecta un punto ciego: "
+            "hay una variable crítica que no estás considerando. "
+            "¿Cuál es? No te pido la solución aún, solo que identifiques qué información "
+            "clave falta o qué ángulo del problema estás ignorando."
         ),
         message_type='system_info',
     )
@@ -310,9 +312,14 @@ def start_case(request):
 def chat_view(request, session_id):
     session = get_object_or_404(CaseSession, id=session_id, user=request.user)
     messages = session.messages.all()
-    return render(request, 'cases/chat.html', {
+    last_ai_msg = messages.filter(role='assistant').last()
+    phase_label = dict(CaseSession.PHASE_CHOICES).get(session.current_phase, '')
+    context = {
         'session': session, 'messages': messages, 'case': session.case,
-    })
+        'last_ai_timestamp': last_ai_msg.created_at.isoformat() if last_ai_msg else '',
+        'current_phase_label': phase_label,
+    }
+    return render(request, 'cases/chat.html', context)
 
 
 @login_required
@@ -327,6 +334,8 @@ def send_message(request, session_id):
     user_message = data.get('message', '').strip()
     quick_reply_option = data.get('quick_reply_option', '')   # 'agree'|'disagree'|'incomplete'
     quick_reply_reason = data.get('quick_reply_reason', '').strip()
+    response_time = data.get('response_time_seconds')
+    total_pause = data.get('total_pause_seconds')
 
     if not user_message:
         return JsonResponse({'error': 'Mensaje vacío.'}, status=400)
@@ -354,6 +363,8 @@ def send_message(request, session_id):
         session=session, role='user', content=user_message,
         message_type=msg_type,
         quick_reply_option=quick_reply_option,
+        response_time_seconds=response_time,
+        total_pause_seconds=total_pause,
     )
 
     # Llamar a la IA
@@ -390,64 +401,109 @@ def send_message(request, session_id):
         session.ia_feedback = ai_text
         session.save()
 
+    # Avanzar de fase si corresponde
+    phase_order = ['ambiguity', 'pressure', 'dilemma']
+    if not any(t in user_message.lower() for t in FINISH_TRIGGERS):
+        if session.current_phase in phase_order and _should_advance_phase(session):
+            idx = phase_order.index(session.current_phase)
+            if idx < len(phase_order) - 1:
+                next_phase = phase_order[idx + 1]
+                session.current_phase = next_phase
+                session.save()
+                phase_intro = {
+                    'pressure': (
+                        "---\n"
+                        "**Fase 2 — Presión**\n\n"
+                        "Bien, has identificado un punto ciego. Pero las cosas se complican: "
+                        "acaba de surgir un agravante externo inesperado. "
+                        "Tu margen de maniobra se redujo. ¿Qué acción táctica tomas ahora?"
+                    ),
+                    'dilemma': (
+                        "---\n"
+                        "**Fase 3 — El Dilema**\n\n"
+                        "Has sorteado la presión. Ahora enfrentas el verdadero reto: "
+                        "existe una solución altamente eficiente, pero implica un riesgo "
+                        "ético, reputacional o de fricción cultural. "
+                        "¿Hasta dónde estás dispuesto a llegar para resolver el caso?"
+                    ),
+                    'completed': (
+                        "---\n"
+                        "**Fases completadas**\n\n"
+                        "Has atravesado ambigüedad, presión y un dilema ético. "
+                        "Tu sesión será revisada por tu MAE. "
+                        "Escribe **'evaluar'** si deseas recibir retroalimentación inmediata."
+                    ),
+                }
+                intro_text = phase_intro.get(next_phase, '')
+                if intro_text:
+                    ChatMessage.objects.create(
+                        session=session, role='assistant',
+                        content=intro_text, message_type='system_info',
+                    )
+                    ai_text = ai_text + '\n\n' + intro_text
+            else:
+                session.current_phase = 'completed'
+                session.save()
+
     return JsonResponse({
         'response': ai_text,
         'timestamp': ai_msg.created_at.strftime('%H:%M'),
         'session_status': session.status,
         'is_error': False,
+        'current_phase': session.current_phase,
     })
 
 
-# ── Panel del Coach ────────────────────────────────────────────────────────────
+# ── Panel del MAE ─────────────────────────────────────────────────────────────
 
 @login_required
-def coach_review(request, session_id):
-    if not request.user.is_coach:
+def mae_review(request, session_id):
+    if not request.user.is_mae:
         return redirect('dashboard')
 
     session = get_object_or_404(CaseSession, id=session_id)
     messages = session.messages.all()
 
     if request.method == 'POST':
-        verdict = request.POST.get('coach_verdict', '').strip()
-        approved = request.POST.get('coach_approved') == 'true'
+        verdict = request.POST.get('mae_verdict', '').strip()
+        approved = request.POST.get('mae_approved') == 'true'
 
-        session.coach = request.user
-        session.coach_verdict = verdict
-        session.coach_approved = approved
+        session.mae = request.user
+        session.mae_verdict = verdict
+        session.mae_approved = approved
         session.status = 'evaluado'
-        session.coach_reviewed_at = timezone.now()
+        session.mae_reviewed_at = timezone.now()
         session.save()
 
         return redirect('dashboard')
 
-    return render(request, 'cases/coach_review.html', {
+    return render(request, 'cases/mae_review.html', {
         'session': session, 'messages': messages, 'case': session.case,
     })
 
 
 @login_required
-def coach_diagnosis_review(request, session_id):
-    """El coach revisa el diagnóstico (5 preguntas) y aprueba o rechaza al gerente."""
-    if not request.user.is_coach:
+def mae_diagnosis_review(request, session_id):
+    """El MAE revisa el diagnóstico (5 preguntas) y aprueba o rechaza al gerente."""
+    if not request.user.is_mae:
         return redirect('dashboard')
 
     session = get_object_or_404(DiagnosisSession, id=session_id)
     messages = session.messages.all()
 
     if request.method == 'POST':
-        verdict = request.POST.get('coach_verdict', '').strip()
-        approved = request.POST.get('coach_approved') == 'true'
+        verdict = request.POST.get('mae_verdict', '').strip()
+        approved = request.POST.get('mae_approved') == 'true'
 
-        session.coach = request.user
-        session.coach_verdict = verdict
-        session.coach_approved = approved
+        session.mae = request.user
+        session.mae_verdict = verdict
+        session.mae_approved = approved
         session.status = 'aprobado' if approved else 'rechazado'
-        session.coach_reviewed_at = timezone.now()
+        session.mae_reviewed_at = timezone.now()
         session.save()
 
         return redirect('dashboard')
 
-    return render(request, 'cases/coach_diagnosis_review.html', {
+    return render(request, 'cases/mae_diagnosis_review.html', {
         'session': session, 'messages': messages,
     })

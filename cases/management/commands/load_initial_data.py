@@ -29,7 +29,7 @@ class Command(BaseCommand):
     def create_users(self):
         users = [
             {'username':'admin','password':'admin123','role':'admin','email':'admin@gerenteIA.com','first_name':'Admin','last_name':'Sistema','is_staff':True,'is_superuser':True},
-            {'username':'coach1','password':'coach123','role':'coach','email':'coach@gerenteIA.com','first_name':'Laura','last_name':'Méndez','is_staff':False,'is_superuser':False},
+            {'username':'mae1','password':'mae123','role':'mae','email':'mae@gerenteIA.com','first_name':'Laura','last_name':'Méndez','is_staff':False,'is_superuser':False},
             {'username':'gerente1','password':'gerente123','role':'gerente','email':'gerente@gerenteIA.com','first_name':'Carlos','last_name':'Ruiz','is_staff':False,'is_superuser':False},
         ]
         created = 0
@@ -42,4 +42,4 @@ class Command(BaseCommand):
                 )
                 created += 1
         self.stdout.write(f'  → {created} usuarios nuevos')
-        self.stdout.write('  admin/admin123 · coach1/coach123 · gerente1/gerente123')
+        self.stdout.write('  admin/admin123 · mae1/mae123 · gerente1/gerente123')

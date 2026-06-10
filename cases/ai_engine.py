@@ -1,6 +1,6 @@
 """
 Motor de IA — Gerente IA
-Modo actual: Conexión real con Gemini (Google Generative Language API).
+Modo actual: Conexión real con Gemini (Google Generative Language API) — plan gratuito.
 Si la API key está vacía o la llamada falla, hace fallback al modo simulado.
 """
 import json
@@ -127,6 +127,40 @@ QUICK_REPLY_RESPONSES = {
 
 FINISH_TRIGGERS = ['listo', 'terminar', 'evaluar', 'finalizar', 'fin', 'concluir', 'termino', 'terminé']
 
+# ── System prompts por fase ────────────────────────────────────────────────────
+
+PHASE_SYSTEM_PROMPTS = {
+    'ambiguity': (
+        "Estás en la **Fase 1 — Ambigüedad** del caso. Tu objetivo: "
+        "detectar un punto ciego en el razonamiento del gerente y advertirle sobre "
+        "una variable crítica que no está considerando. NO des la solución. "
+        "Haz preguntas que lo obliguen a identificar la información faltante. "
+        "Sostén la fase hasta que el gerente demuestre haber identificado el punto ciego."
+    ),
+    'pressure': (
+        "Estás en la **Fase 2 — Presión**. El gerente ya identificó un punto ciego. "
+        "Ahora introduce un agravante externo e inesperado que requiera acción táctica "
+        "inmediata. Reduce su margen de maniobra. Ejemplos: un cliente amenaza con irse, "
+        "un recorte presupuestal de última hora, una renuncia inesperada en el equipo. "
+        "Mantén la presión hasta que el gerente proponga una acción táctica concreta."
+    ),
+    'dilemma': (
+        "Estás en la **Fase 3 — El Dilema**. El gerente ya enfrentó la presión. "
+        "Ahora propón una solución altamente eficiente para el problema, pero que "
+        "implique un riesgo ético, reputacional o de fricción cultural para la organización. "
+        "Ejemplos: despedir a un empleado de bajo rendimiento que es muy querido, "
+        "ocultar información a un cliente para ganar tiempo, saltar un proceso interno "
+        "para salvar el proyecto. Evalúa cómo el gerente negocia este límite."
+    ),
+}
+
+PHASE_LABELS = {
+    'ambiguity': 'Fase 1 — Ambigüedad',
+    'pressure': 'Fase 2 — Presión',
+    'dilemma': 'Fase 3 — Dilema',
+    'completed': 'Fases Completadas',
+}
+
 
 # ── Validación de respuestas del usuario ──────────────────────────────────────
 
@@ -204,7 +238,7 @@ def _call_gemini(system_prompt: str, user_prompt: str) -> str:
     Lanza excepción si falla — el llamador decide el fallback.
     """
     api_key = settings.GEMINI_API_KEY.strip()
-    model = getattr(settings, 'GEMINI_MODEL', 'gemini-1.5-flash-latest')
+    model = getattr(settings, 'GEMINI_MODEL', 'gemini-3.5-flash')
     url = GEMINI_ENDPOINT.format(model=model, key=api_key)
 
     payload = {
@@ -248,10 +282,10 @@ def get_diagnosis_response(question_number: int, user_answer: str, is_last: bool
         if _gemini_available():
             try:
                 system = (
-                    "Eres un coach experto en competencias gerenciales. "
+                    "Eres un MAE experto en competencias gerenciales. "
                     "Acabas de terminar un diagnóstico de 5 preguntas situacionales con un gerente. "
                     "Responde brevemente (máx 4 oraciones) agradeciendo, indicando que has analizado sus respuestas "
-                    "y que su Coach humano revisará el diagnóstico para confirmar el nivel asignado. "
+                    "y que su MAE humano revisará el diagnóstico para confirmar el nivel asignado. "
                     "Responde siempre en español, sin emojis."
                 )
                 user = f"Última respuesta del gerente: {user_answer}\nGenera el cierre del diagnóstico."
@@ -261,7 +295,7 @@ def get_diagnosis_response(question_number: int, user_answer: str, is_last: bool
         return (
             "Gracias por completar el diagnóstico. He analizado tus respuestas.\n\n"
             "En breve recibirás tu nivel asignado y tu ruta de capacitación personalizada. "
-            "Tu coach revisará este diagnóstico antes de confirmar el resultado."
+            "Tu MAE revisará este diagnóstico antes de confirmar el resultado."
         )
 
     # Avanzar a la siguiente pregunta — opcionalmente con un ack generado por IA
@@ -292,17 +326,15 @@ def _build_case_history(session, limit: int = 12) -> list[dict]:
     msgs.reverse()
     history = []
     for m in msgs:
-        if m.role == 'user':
-            history.append({"role": "user", "parts": [{"text": m.content}]})
-        elif m.role == 'assistant':
-            history.append({"role": "model", "parts": [{"text": m.content}]})
+        role = "user" if m.role == "user" else "model"
+        history.append({"role": role, "parts": [{"text": m.content}]})
     return history
 
 
 def _call_gemini_with_history(system_prompt: str, history: list[dict], new_user_text: str) -> str:
     """Variante de _call_gemini con historial multi-turno."""
     api_key = settings.GEMINI_API_KEY.strip()
-    model = getattr(settings, 'GEMINI_MODEL', 'gemini-1.5-flash-latest')
+    model = getattr(settings, 'GEMINI_MODEL', 'gemini-3.5-flash')
     url = GEMINI_ENDPOINT.format(model=model, key=api_key)
 
     contents = list(history)
@@ -333,6 +365,62 @@ def _call_gemini_with_history(system_prompt: str, history: list[dict], new_user_
     return text
 
 
+def _should_advance_phase(session) -> bool:
+    """Retorna True si el usuario ya ha respondido suficientes veces en la fase actual."""
+    msgs = session.messages.filter(role='user')
+    # Contamos mensajes del usuario desde que empezó la fase actual
+    phase_start = session.messages.filter(
+        role='assistant', message_type='system_info'
+    ).filter(content__contains=PHASE_LABELS.get(session.current_phase, '')).last()
+    if phase_start:
+        msgs_in_phase = msgs.filter(created_at__gt=phase_start.created_at).count()
+    else:
+        msgs_in_phase = msgs.count()
+    return msgs_in_phase >= 2
+
+
+def _build_phase_prompt(case, session, quick_reply_option='', quick_reply_reason='') -> str:
+    """Construye el system prompt según la fase actual."""
+    phase = session.current_phase
+    phase_instruction = PHASE_SYSTEM_PROMPTS.get(phase, "")
+
+    qr_directive = ""
+    if quick_reply_option:
+        directives = {
+            'agree': (
+                "El gerente está de acuerdo con tu reflexión anterior. NO simplemente lo felicites. "
+                "Reconoce brevemente su acuerdo y CONTRA-RESPONDE retándolo: presenta un escenario "
+                "donde su postura podría fallar, pídele un riesgo concreto que no haya considerado, "
+                "o exígele una acción medible para los próximos 7 días."
+            ),
+            'disagree': (
+                "El gerente NO está de acuerdo con tu reflexión anterior. NO cedas de inmediato. "
+                "CONTRA-RESPONDE: defiende con un argumento concreto la postura cuestionada, "
+                "pídele evidencia o un ejemplo que respalde su alternativa, y compara los riesgos "
+                "de ambas posiciones antes de cerrar con una pregunta que lo obligue a sustentar más."
+            ),
+            'incomplete': (
+                "El gerente afirma que falta un elemento en el análisis. CONTRA-RESPONDE así: "
+                "valida brevemente que su observación es relevante, identifica qué elemento concreto "
+                "él está señalando, y devuélvele una pregunta puntual sobre cómo integraría ese "
+                "elemento faltante en una acción medible."
+            ),
+        }
+        qr_directive = "\n" + directives.get(quick_reply_option, "")
+
+    return (
+        "Eres un MAE gerencial experto que entrena gerentes mediante casos situacionales. "
+        f"El caso actual es: '{case.title}' (categoría: {case.get_category_display()}, "
+        f"dificultad: {case.get_difficulty_display()}).\n"
+        f"Descripción del caso: {case.description}\n\n"
+        f"{phase_instruction}\n\n"
+        "Habla en español, tono respetuoso, sin emojis. "
+        "No des recetas; haz preguntas que lo hagan pensar. "
+        "Si el gerente quiere finalizar, escribirá 'evaluar'."
+        + qr_directive
+    )
+
+
 def get_ai_response(user_message: str, session, case, quick_reply_option: str = '', quick_reply_reason: str = '') -> tuple[str, bool]:
     """
     Genera respuesta de la IA para el chatbox de casos.
@@ -348,7 +436,6 @@ def get_ai_response(user_message: str, session, case, quick_reply_option: str = 
         if _gemini_available():
             try:
                 qr_hint = ""
-                qr_directive = ""
                 if quick_reply_option:
                     labels = {
                         'agree': "El gerente seleccionó el botón 'Estoy de acuerdo'.",
@@ -359,47 +446,10 @@ def get_ai_response(user_message: str, session, case, quick_reply_option: str = 
                         f"\n\nSeñal del gerente vía botón: {labels.get(quick_reply_option, '')} "
                         f"Razón aportada por él: '{quick_reply_reason}'."
                     )
-                    # Instrucción explícita para que la IA contra-responda en cada caso.
-                    directives = {
-                        'agree': (
-                            "El gerente está de acuerdo con tu reflexión anterior. NO simplemente lo felicites. "
-                            "Reconoce brevemente su acuerdo y CONTRA-RESPONDE retándolo: presenta un escenario "
-                            "donde su postura podría fallar, pídele un riesgo concreto que no haya considerado, "
-                            "o exígele una acción medible para los próximos 7 días."
-                        ),
-                        'disagree': (
-                            "El gerente NO está de acuerdo con tu reflexión anterior. NO cedas de inmediato. "
-                            "CONTRA-RESPONDE: defiende con un argumento concreto la postura cuestionada, "
-                            "pídele evidencia o un ejemplo que respalde su alternativa, y compara los riesgos "
-                            "de ambas posiciones antes de cerrar con una pregunta que lo obligue a sustentar más."
-                        ),
-                        'incomplete': (
-                            "El gerente afirma que falta un elemento en el análisis. CONTRA-RESPONDE así: "
-                            "valida brevemente que su observación es relevante, identifica qué elemento concreto "
-                            "él está señalando, y devuélvele una pregunta puntual sobre cómo integraría ese "
-                            "elemento faltante en una acción medible."
-                        ),
-                    }
-                    qr_directive = "\n" + directives.get(quick_reply_option, "")
 
-                system = (
-                    "Eres un Coach gerencial experto que entrena gerentes mediante casos situacionales. "
-                    f"El caso actual es: '{case.title}' (categoría: {case.get_category_display()}, "
-                    f"dificultad: {case.get_difficulty_display()}).\n"
-                    f"Descripción del caso: {case.description}\n\n"
-                    "Tu rol: responder a la última intervención del gerente con UNA reflexión breve "
-                    "(máx 3 oraciones) que profundice su análisis, le rete con una pregunta o le señale "
-                    "un ángulo no considerado. Habla en español, tono respetuoso, sin emojis. "
-                    "No des recetas; haz preguntas que lo hagan pensar. "
-                    "Si el gerente quiere finalizar, le indicará escribiendo 'evaluar'."
-                    + qr_directive
-                )
+                system = _build_phase_prompt(case, session, quick_reply_option, quick_reply_reason)
                 history = _build_case_history(session)
-                # El último mensaje del usuario ya fue guardado antes de llamar a la IA,
-                # así que NO lo agregamos como new_user_text si ya está en historial.
-                # _build_case_history ya lo incluye, por lo que enviamos un cue mínimo.
                 if history and history[-1]["role"] == "user":
-                    # quitamos el último user del history porque lo pasamos aparte
                     last_user_text = history[-1]["parts"][0]["text"]
                     history = history[:-1]
                     return _call_gemini_with_history(system, history, last_user_text + qr_hint), False
@@ -407,7 +457,32 @@ def get_ai_response(user_message: str, session, case, quick_reply_option: str = 
             except Exception as e:
                 logger.error(f"Gemini falló en chat de caso, usando fallback: {e}")
 
-        # Fallback simulado
+        # Fallback simulado por fase
+        phase = session.current_phase
+        fallbacks = {
+            'ambiguity': [
+                "Tu enfoque tiene mérito, pero hay una variable que no estás considerando. "
+                "¿Qué pasaría si el contexto externo cambiara drásticamente?",
+                "Detente un momento. La información que tienes es incompleta. "
+                "¿Qué dato crucial te falta para tomar una decisión informada?",
+            ],
+            'pressure': [
+                "Acaba de llegar una noticia: un cliente clave amenaza con cancelar el contrato "
+                "si no hay una solución en 48 horas. ¿Qué haces ahora?",
+                "Presupuesto recortado un 20% efectivo inmediato. Tu mejor colaborador renunció. "
+                "¿Cómo reaccionas tácticamente?",
+            ],
+            'dilemma': [
+                "Podrías resolver esto rápidamente si aceptas saltar un proceso interno. "
+                "Nadie se enteraría, pero va contra la política de la empresa. ¿Lo harías?",
+                "La solución más eficiente es reasignar a un empleado a un puesto que no quiere, "
+                "pero es lo mejor para el equipo. ¿Cómo manejas la fricción?",
+            ],
+        }
+        phase_fallbacks = fallbacks.get(phase, [])
+        if phase_fallbacks:
+            return random.choice(phase_fallbacks), False
+
         if quick_reply_option:
             templates = QUICK_REPLY_RESPONSES.get(quick_reply_option, [])
             if templates:
@@ -434,14 +509,14 @@ def generate_final_feedback(session) -> str:
         try:
             history = _build_case_history(session, limit=30)
             transcript = "\n".join(
-                f"{('Gerente' if h['role']=='user' else 'Coach IA')}: {h['parts'][0]['text']}"
+                f"{('Gerente' if h['role']=='user' else 'MAE IA')}: {h['parts'][0]['text']}"
                 for h in history
             )
             system = (
-                "Eres un coach gerencial. A continuación tienes la transcripción de una sesión de caso. "
+                "Eres un MAE gerencial. A continuación tienes la transcripción de una sesión de caso. "
                 "Genera una retroalimentación final breve (4-6 oraciones, en español, sin emojis) que: "
                 "(1) reconozca lo que el gerente analizó bien, (2) señale uno o dos puntos a profundizar, "
-                "(3) recuerde que su Coach humano revisará la sesión y emitirá el dictamen final."
+                "(3) recuerde que su MAE humano revisará la sesión y emitirá el dictamen final."
             )
             return _call_gemini(system, f"Transcripción de la sesión:\n{transcript}")
         except Exception as e:
@@ -451,12 +526,12 @@ def generate_final_feedback(session) -> str:
         return (
             "Has dado respuestas iniciales, pero un análisis gerencial robusto "
             "requiere explorar más ángulos. Te recomiendo profundizar más en próximos casos.\n\n"
-            "Tu sesión quedó guardada y será revisada por tu Coach."
+            "Tu sesión quedó guardada y será revisada por tu MAE."
         )
     return (
         f"Has completado este caso con {count} intervenciones. "
         "Demostraste capacidad analítica y disposición reflexiva. "
-        "Tu Coach revisará esta sesión y emitirá el dictamen final antes de registrar tu resultado."
+        "Tu MAE revisará esta sesión y emitirá el dictamen final antes de registrar tu resultado."
     )
 
 
