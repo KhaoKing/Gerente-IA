@@ -137,6 +137,16 @@ python manage.py runserver
 
 Abre en tu navegador: [http://127.0.0.1:8000](http://127.0.0.1:8000)
 
+### Ejecutar como servicio en segundo plano
+
+```bash
+nohup python manage.py runserver > server.log 2>&1 &
+```
+
+- Los logs se guardan en `server.log`
+- Para verlos en vivo: `tail -f server.log`
+- Para detenerlo: `kill $(pgrep -f "manage.py runserver")`
+
 ---
 
 ## Usuarios de prueba
