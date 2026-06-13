@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+{% block title %}Revisar Diagnóstico — Gerente IA{% endblock %}
+{% block content %}
+<div class="mae-review-page">
+  <div class="mae-review-header">
+    <a href="{% url 'dashboard' %}" class="btn-ghost">← Volver al Dashboard</a>
+    <h1>Revisar Diagnóstico</h1>
+    <p style="color:var(--text-2);font-size:.875rem">
+      Gerente: <strong>{{ session.user.get_full_name }}</strong> ·
+      Completado: {{ session.completed_at|date:"d/m/Y H:i" }}
+    </p>
+  </div>
+
+  <div class="mae-review-grid">
+    <div class="card card-wide">
+      <h3>📋 Transcripción de las 5 preguntas</h3>
+      <div class="mae-transcript">
+        {% for msg in messages %}
+        <div class="transcript-msg transcript-{{ msg.role }}">
+          <div class="transcript-meta">
+            <strong>{% if msg.role == 'assistant' %}MAE IA{% else %}{{ session.user.get_full_name }}{% endif %}</strong>
+            <span>{{ msg.created_at|date:"d/m/Y H:i" }}</span>
+            {% if msg.question_number %}<span style="color:var(--accent)">Pregunta {{ msg.question_number }}</span>{% endif %}
+          </div>
+          <p>{{ msg.content|linebreaksbr }}</p>
+        </div>
+        {% empty %}
+        <p style="color:var(--text-2);text-align:center;padding:2rem">No hay mensajes en esta sesión.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="card card-wide">
+      <h3>✍️ Dictamen del MAE</h3>
+      <form method="POST" class="mae-verdict-form">
+        {% csrf_token %}
+        <div class="form-group" style="margin-bottom:1.5rem">
+          <label>Tu veredicto sobre este diagnóstico</label>
+          <textarea name="mae_verdict" rows="4" placeholder="Escribe tu evaluación sobre las respuestas del gerente y la recomendación de la IA..." required></textarea>
+        </div>
+
+        <div style="display:flex;gap:1rem;margin-bottom:1.5rem">
+          <label class="verdict-option">
+            <input type="radio" name="mae_approved" value="true" required>
+            <div>
+              <strong style="color:var(--accent-green)">✅ Aprobar</strong>
+              <p style="font-size:.8rem;color:var(--text-2);margin-top:.2rem">El diagnóstico es adecuado. Se habilitará el chatbox con IA para el gerente.</p>
+            </div>
+          </label>
+          <label class="verdict-option">
+            <input type="radio" name="mae_approved" value="false" required>
+            <div>
+              <strong style="color:#f87171">❌ Rechazar</strong>
+              <p style="font-size:.8rem;color:var(--text-2);margin-top:.2rem">El gerente debe repetir las 5 preguntas con más profundidad.</p>
+            </div>
+          </label>
+        </div>
+
+        <button type="submit" class="btn-primary">Emitir dictamen →</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

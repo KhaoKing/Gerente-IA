@@ -55,6 +55,8 @@ def dashboard(request):
 
     elif user.is_mae:
         from accounts.models import User as UserModel
+        from django.db.models import Avg, Count, Max
+
         # Diagnósticos completados esperando validación del MAE
         pending_diagnoses = DiagnosisSession.objects.filter(
             status='completado'
@@ -72,12 +74,54 @@ def dashboard(request):
 
         managers_list = UserModel.objects.filter(role='gerente').prefetch_related('manager_profile')
 
+        # ── Métricas de tiempos de respuesta ──
+        response_metrics = ChatMessage.objects.filter(
+            role='user', response_time_seconds__isnull=False
+        ).aggregate(
+            avg_response=Avg('response_time_seconds'),
+            max_response=Max('response_time_seconds'),
+            avg_pause=Avg('total_pause_seconds'),
+        )
+
+        # Top gerentes por tiempo de respuesta promedio
+        user_metrics_raw = ChatMessage.objects.filter(
+            role='user', response_time_seconds__isnull=False
+        ).values(
+            'session__user_id', 'session__user__first_name', 'session__user__last_name'
+        ).annotate(
+            avg_response=Avg('response_time_seconds'),
+            avg_pause=Avg('total_pause_seconds'),
+            total_messages=Count('id'),
+            last_msg=Max('created_at'),
+        ).order_by('avg_response')[:10]
+
+        user_metrics = []
+        for m in user_metrics_raw:
+            avg_r = m['avg_response'] or 0
+            avg_p = m['avg_pause'] or 0
+            user_metrics.append({
+                'user_id': m['session__user_id'],
+                'name': f"{m['session__user__first_name']} {m['session__user__last_name']}".strip(),
+                'avg_response': avg_r,
+                'avg_pause': avg_p,
+                'total_messages': m['total_messages'],
+                'efficiency': round((avg_r - avg_p) / max(avg_r, 1) * 100, 1) if avg_r > 0 else 0,
+            })
+
+        # Total de mensajes con métricas
+        total_measured = ChatMessage.objects.filter(
+            role='user', response_time_seconds__isnull=False
+        ).count()
+
         context.update({
             'pending_diagnoses': pending_diagnoses,
             'pending_reviews': pending_reviews,
             'in_review': in_review,
             'all_sessions': all_manager_sessions,
             'managers_list': managers_list,
+            'response_metrics': response_metrics,
+            'user_metrics': user_metrics,
+            'total_measured_messages': total_measured,
         })
 
     elif user.is_admin_role:

@@ -274,6 +274,22 @@ input,textarea,select{font-family:var(--font-body)}
 .verdict-option:hover{border-color:var(--accent)}
 .verdict-option input{margin-top:.2rem;flex-shrink:0}
 
+/* ── MAE Review Page ── */
+.mae-review-page{max-width:960px;margin:0 auto;padding:2.5rem 1.5rem}
+.mae-review-header{margin-bottom:2rem}
+.mae-review-header h1{font-family:var(--font-display);font-size:1.7rem;font-weight:800;margin-top:.5rem}
+.mae-review-grid{display:flex;flex-direction:column;gap:1.2rem}
+.mae-verdict-form{display:flex;flex-direction:column}
+
+/* ── Metrics Table ── */
+.metrics-table-wrap{overflow-x:auto}
+.metrics-table{width:100%;border-collapse:collapse;font-size:.85rem}
+.metrics-table th{text-align:left;color:var(--text-2);font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;padding:.7rem .8rem;border-bottom:1px solid var(--border)}
+.metrics-table td{padding:.7rem .8rem;border-bottom:1px solid var(--border);color:var(--text)}
+.metrics-table tbody tr:hover{background:var(--bg-3)}
+.efficiency-bar{width:80px;height:6px;background:var(--bg-3);border-radius:999px;overflow:hidden;display:inline-block;vertical-align:middle;margin-right:.4rem}
+.efficiency-fill{height:100%;background:linear-gradient(90deg,var(--accent-green),var(--accent));border-radius:999px;transition:width .4s}
+
 /* ── Responsive ── */
 @media(max-width:768px){
   .login-page{grid-template-columns:1fr}

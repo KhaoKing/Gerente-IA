@@ -37,6 +37,7 @@
 
     <div class="chat-messages" id="chatMessages">
       {% for msg in messages %}
+      {% if msg.message_type != 'system_info' %}
       <div class="message message-{{ msg.role }} {% if msg.message_type == 'error_ia' %}message-error{% endif %}">
         <div class="message-bubble">{{ msg.content|linebreaksbr }}</div>
         <span class="message-time">
@@ -44,6 +45,7 @@
           {% if msg.quick_reply_option %}<span class="qr-tag">respuesta rápida</span>{% endif %}
         </span>
       </div>
+      {% endif %}
       {% endfor %}
     </div>
 

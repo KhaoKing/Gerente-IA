@@ -1,0 +1,84 @@
+{% extends 'base.html' %}
+{% block title %}Revisar Caso — Gerente IA{% endblock %}
+{% block content %}
+<div class="mae-review-page">
+  <div class="mae-review-header">
+    <a href="{% url 'dashboard' %}" class="btn-ghost">← Volver al Dashboard</a>
+    <h1>Revisar Caso</h1>
+    <p style="color:var(--text-2);font-size:.875rem">
+      Gerente: <strong>{{ session.user.get_full_name }}</strong> ·
+      Caso: <strong>{{ case.title }}</strong> ·
+      {% if session.completed_at %}Completado: {{ session.completed_at|date:"d/m/Y H:i" }}{% else %}Iniciado: {{ session.started_at|date:"d/m/Y H:i" }}{% endif %}
+    </p>
+  </div>
+
+  <div class="mae-review-grid">
+    <div class="card" style="grid-column:1/-1">
+      <div style="display:flex;gap:1rem;flex-wrap:wrap">
+        <span class="tag">{{ case.get_category_display }}</span>
+        <span class="tag">{{ case.get_difficulty_display }}</span>
+        <span class="tag">Fase: {{ session.get_current_phase_display }}</span>
+        {% if session.score %}<span class="tag">Puntuación IA: {{ session.score }}</span>{% endif %}
+      </div>
+      {% if session.ia_feedback %}
+      <div style="margin-top:1rem;padding:1rem;background:var(--bg-3);border-radius:10px;font-size:.85rem;color:var(--text-2)">
+        <strong style="color:var(--accent)">Retroalimentación de la IA:</strong>
+        <p style="margin-top:.3rem">{{ session.ia_feedback|linebreaksbr }}</p>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="card card-wide">
+      <h3>📋 Transcripción de la conversación</h3>
+      <div class="mae-transcript">
+        {% for msg in messages %}
+        {% if msg.message_type != 'system_info' %}
+        <div class="transcript-msg transcript-{{ msg.role }}{% if msg.message_type == 'error_ia' %} transcript-system{% endif %}">
+          <div class="transcript-meta">
+            <strong>{% if msg.role == 'assistant' %}MAE IA{% elif msg.role == 'system' %}Sistema{% else %}{{ session.user.get_full_name }}{% endif %}</strong>
+            <span>{{ msg.created_at|date:"d/m/Y H:i" }}</span>
+            {% if msg.message_type == 'quick_reply' %}<span style="color:var(--accent)">Respuesta rápida</span>{% endif %}
+            {% if msg.message_type == 'error_ia' %}<span style="color:#f97316">Error IA</span>{% endif %}
+            {% if msg.response_time_seconds %}<span style="color:var(--text-3)">Tardó {{ msg.response_time_seconds|floatformat:0 }}s</span>{% endif %}
+          </div>
+          <p>{{ msg.content|linebreaksbr }}</p>
+        </div>
+        {% endif %}
+        {% empty %}
+        <p style="color:var(--text-2);text-align:center;padding:2rem">No hay mensajes en esta sesión.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="card card-wide">
+      <h3>✍️ Dictamen del MAE</h3>
+      <form method="POST" class="mae-verdict-form">
+        {% csrf_token %}
+        <div class="form-group" style="margin-bottom:1.5rem">
+          <label>Tu veredicto sobre esta sesión</label>
+          <textarea name="mae_verdict" rows="4" placeholder="Escribe tu evaluación del desempeño del gerente en este caso..." required></textarea>
+        </div>
+
+        <div style="display:flex;gap:1rem;margin-bottom:1.5rem">
+          <label class="verdict-option">
+            <input type="radio" name="mae_approved" value="true" required>
+            <div>
+              <strong style="color:var(--accent-green)">✅ Aprobar</strong>
+              <p style="font-size:.8rem;color:var(--text-2);margin-top:.2rem">El gerente manejó adecuadamente el caso.</p>
+            </div>
+          </label>
+          <label class="verdict-option">
+            <input type="radio" name="mae_approved" value="false" required>
+            <div>
+              <strong style="color:#f87171">❌ Rechazar</strong>
+              <p style="font-size:.8rem;color:var(--text-2);margin-top:.2rem">El gerente debe repetir este caso o requiere capacitación adicional.</p>
+            </div>
+          </label>
+        </div>
+
+        <button type="submit" class="btn-primary">Emitir dictamen →</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

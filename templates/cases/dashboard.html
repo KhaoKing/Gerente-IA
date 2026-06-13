@@ -190,6 +190,58 @@
       </table>
     </div>
   </div>
+
+  {# ── Métricas de Tiempos de Respuesta ── #}
+  {% if user_metrics %}
+  <div id="mae-metrics" class="card card-wide" style="margin-top: 1.5rem;">
+    <h3>⏱️ Métricas de Tiempo de Respuesta</h3>
+    <p style="font-size:.85rem;color:var(--text-2);margin-top:.3rem">
+      Basado en {{ total_measured_messages }} mensajes registrados con métricas.
+    </p>
+
+    <div class="stats-row" style="margin-top: 1rem;">
+      <div class="stat-card">
+        <span class="stat-value">{{ response_metrics.avg_response|default:0|floatformat:1 }}s</span>
+        <span class="stat-label">Promedio de respuesta</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value">{{ response_metrics.avg_pause|default:0|floatformat:1 }}s</span>
+        <span class="stat-label">Promedio en pausas</span>
+      </div>
+    </div>
+
+    <h4 style="margin-top: 1.5rem; font-size:.85rem; color:var(--text-2)">📊 Por Gerente</h4>
+    <div class="metrics-table-wrap" style="margin-top: .8rem;">
+      <table class="metrics-table">
+        <thead>
+          <tr>
+            <th>Gerente</th>
+            <th>Promedio Resp.</th>
+            <th>Promedio Pausas</th>
+            <th>Eficiencia</th>
+            <th>Mensajes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in user_metrics %}
+          <tr>
+            <td><strong>{{ m.name }}</strong></td>
+            <td>{{ m.avg_response|floatformat:1 }}s</td>
+            <td>{{ m.avg_pause|floatformat:1 }}s</td>
+            <td>
+              <div class="efficiency-bar" title="{{ m.efficiency }}% de tiempo activo">
+                <div class="efficiency-fill" style="width:{{ m.efficiency }}%"></div>
+              </div>
+              <span style="font-size:.7rem;color:var(--text-3)">{{ m.efficiency }}%</span>
+            </td>
+            <td>{{ m.total_messages }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
   {% endif %}
 
   {# ── ADMIN ── #}

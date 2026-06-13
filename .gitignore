@@ -8,6 +8,7 @@ build/
 .env
 .venv/
 venv/
+staticfiles/
 GerenteIA/
 *.sqlite3
 *.db
