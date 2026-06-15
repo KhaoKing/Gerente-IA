@@ -33,7 +33,7 @@ class ManagementCase(models.Model):
 class DiagnosisSession(models.Model):
     STATUS_CHOICES = [
         ('en_progreso', 'En Progreso'),
-        ('completado', 'Completado — esperando revisión MAE'),
+        ('completado', 'Esperando validación del MAE'),
         ('aprobado', 'Aprobado por MAE'),
         ('rechazado', 'Rechazado por MAE'),
         ('nivel_asignado', 'Nivel Asignado'),
@@ -72,6 +72,9 @@ class DiagnosisMessage(models.Model):
     question_number = models.IntegerField(null=True, blank=True)   # a qué pregunta corresponde
     created_at = models.DateTimeField(auto_now_add=True)
 
+    def __str__(self):
+        return f"Pregunta {self.question_number or '?'} — {self.get_role_display()} ({self.created_at:%d/%m %H:%M})"
+
     class Meta:
         ordering = ['created_at']
 
@@ -81,7 +84,7 @@ class DiagnosisMessage(models.Model):
 class CaseSession(models.Model):
     STATUS_CHOICES = [
         ('en_progreso', 'En Progreso'),
-        ('completado', 'Completado — pendiente revisión MAE'),
+        ('completado', 'Completado'),
         ('en_revision', 'En Revisión por MAE'),
         ('evaluado', 'Evaluado'),
     ]
@@ -141,12 +144,56 @@ class ChatMessage(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"[{self.role}] {self.content[:60]}"
+        return f"{self.get_role_display()} — {self.get_message_type_display()} ({self.created_at:%d/%m %H:%M})"
 
     class Meta:
         ordering = ['created_at']
         verbose_name = 'Mensaje de Chat'
         verbose_name_plural = 'Mensajes de Chat'
+
+
+# ── Configuración de API de IA ─────────────────────────────────────────────────
+
+class AIConfiguration(models.Model):
+    PROVIDER_CHOICES = [
+        ('gemini', 'Google Gemini'),
+        ('openai', 'OpenAI'),
+        ('deepseek', 'DeepSeek'),
+        ('groq', 'Groq'),
+        ('mistral', 'Mistral AI'),
+        ('together', 'Together AI'),
+        ('openai_compatible', 'Otro (OpenAI Compatible)'),
+    ]
+
+    PROVIDER_ENDPOINTS = {
+        'gemini': 'https://generativelanguage.googleapis.com/v1beta/models/',
+        'openai': 'https://api.openai.com/v1/chat/completions',
+        'deepseek': 'https://api.deepseek.com/v1/chat/completions',
+        'groq': 'https://api.groq.com/openai/v1/chat/completions',
+        'mistral': 'https://api.mistral.ai/v1/chat/completions',
+        'together': 'https://api.together.xyz/v1/chat/completions',
+    }
+
+    name = models.CharField('Nombre', max_length=100, default='Default')
+    provider = models.CharField('Proveedor', max_length=20, choices=PROVIDER_CHOICES, default='gemini')
+    api_url = models.URLField('URL del endpoint', help_text='URL completa del endpoint de la API')
+    api_key = models.CharField('API Key', max_length=500)
+    model_name = models.CharField('Nombre del modelo', max_length=100, blank=True,
+                                  help_text='Solo para OpenAI/compatibles. Ej: gpt-4o, deepseek-chat')
+    is_active = models.BooleanField('Activo', default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.get_provider_display()})"
+
+    class Meta:
+        verbose_name = 'Configuración de IA'
+        verbose_name_plural = 'Configuraciones de IA'
+
+    @classmethod
+    def get_active(cls):
+        return cls.objects.filter(is_active=True).first()
 
 
 # ── Registro de errores de IA ──────────────────────────────────────────────────

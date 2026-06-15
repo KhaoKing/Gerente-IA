@@ -1,7 +1,8 @@
 """
 Motor de IA — Gerente IA
-Modo actual: Conexión real con Gemini (Google Generative Language API) — plan gratuito.
-Si la API key está vacía o la llamada falla, hace fallback al modo simulado.
+Soporta múltiples proveedores de IA (Gemini, OpenAI y compatibles) mediante configuración
+dinámica desde la BD (modelo AIConfiguration). Si no hay configuración activa, usa las
+variables de entorno GEMINI_API_KEY / GEMINI_MODEL como fallback.
 """
 import json
 import random
@@ -221,65 +222,123 @@ def validate_user_message(message: str) -> tuple[bool, str]:
     return True, ""
 
 
-# ── Conexión a Gemini ─────────────────────────────────────────────────────────
-
-GEMINI_ENDPOINT = (
-    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
-)
+# ── Conexión a IA (configuración dinámica) ─────────────────────────────────────
 
 
-def _gemini_available() -> bool:
+def _get_active_config():
+    """Retorna la configuración activa desde BD. Si no hay, retorna None."""
+    from .models import AIConfiguration
+    return AIConfiguration.get_active()
+
+
+def _ai_available() -> bool:
+    """Hay IA disponible? (configuración BD o fallback de settings)."""
+    config = _get_active_config()
+    if config and config.api_url and config.api_key:
+        return True
     return bool(getattr(settings, 'GEMINI_API_KEY', '').strip())
 
 
-def _call_gemini(system_prompt: str, user_prompt: str) -> str:
+def _call_ai_api(system_prompt: str, user_prompt: str) -> str:
     """
-    Llama al endpoint de Gemini. Devuelve el texto generado.
+    Llama a la API de IA configurada (BD o fallback Gemini de settings).
+    Detecta automáticamente el formato (Gemini vs OpenAI-compatible).
     Lanza excepción si falla — el llamador decide el fallback.
     """
-    api_key = settings.GEMINI_API_KEY.strip()
-    model = getattr(settings, 'GEMINI_MODEL', 'gemini-3.5-flash')
-    url = GEMINI_ENDPOINT.format(model=model, key=api_key)
+    config = _get_active_config()
 
+    if config and config.api_url and config.api_key:
+        api_url = config.api_url
+        api_key = config.api_key
+        provider = config.provider
+        model = config.model_name or 'default'
+    else:
+        # Fallback a settings (Gemini)
+        api_key = settings.GEMINI_API_KEY.strip()
+        model = getattr(settings, 'GEMINI_MODEL', 'gemini-3.5-flash')
+        api_url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent?key={api_key}"
+        )
+        provider = 'gemini'
+
+    return _call_api_internal(api_url, api_key, provider, model, system_prompt, user_prompt)
+
+
+def _call_api_internal(api_url: str, api_key: str, provider: str, model: str,
+                       system_prompt: str, user_prompt: str) -> str:
+    """Ejecuta la llamada HTTP a la API según el proveedor."""
+    if provider == 'gemini' or 'generativelanguage' in api_url:
+        return _call_gemini_format(api_url, system_prompt, user_prompt)
+    else:
+        # Todos los proveedores OpenAI-compatible (openai, deepseek, groq, mistral, together, etc.)
+        return _call_openai_format(api_url, api_key, model, system_prompt, user_prompt)
+
+
+def _call_gemini_format(url: str, system_prompt: str, user_prompt: str) -> str:
+    """Formato Gemini: system_instruction + contents."""
     payload = {
-        "system_instruction": {
-            "parts": [{"text": system_prompt}]
-        },
-        "contents": [
-            {"role": "user", "parts": [{"text": user_prompt}]}
-        ],
-        "generationConfig": {
-            "temperature": 0.7,
-            "maxOutputTokens": 500,
-        },
+        "system_instruction": {"parts": [{"text": system_prompt}]},
+        "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 500},
     }
-
     req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode('utf-8'),
-        headers={'Content-Type': 'application/json'},
-        method='POST',
+        url, data=json.dumps(payload).encode('utf-8'),
+        headers={'Content-Type': 'application/json'}, method='POST',
     )
     with urllib.request.urlopen(req, timeout=20) as resp:
         body = resp.read().decode('utf-8')
     data = json.loads(body)
     candidates = data.get('candidates') or []
     if not candidates:
-        raise RuntimeError(f"Gemini no devolvió candidatos: {data}")
+        raise RuntimeError(f"API no devolvió candidatos: {data}")
     parts = candidates[0].get('content', {}).get('parts', [])
     text = ''.join(p.get('text', '') for p in parts).strip()
     if not text:
-        raise RuntimeError("Gemini devolvió respuesta vacía.")
+        raise RuntimeError("API devolvió respuesta vacía.")
+    return text
+
+
+def _call_openai_format(url: str, api_key: str, model: str,
+                        system_prompt: str, user_prompt: str) -> str:
+    """Formato OpenAI-compatible: messages array con roles."""
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.7,
+        "max_tokens": 500,
+    }
+    req = urllib.request.Request(
+        url, data=json.dumps(payload).encode('utf-8'),
+        headers={
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {api_key}',
+        }, method='POST',
+    )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        body = resp.read().decode('utf-8')
+    data = json.loads(body)
+    choices = data.get('choices') or []
+    if not choices:
+        raise RuntimeError(f"API no devolvió choices: {data}")
+    text = choices[0].get('message', {}).get('content', '').strip()
+    if not text:
+        raise RuntimeError("API devolvió respuesta vacía.")
     return text
 
 
 # ── Diagnóstico ───────────────────────────────────────────────────────────────
 
 def get_diagnosis_response(question_number: int, user_answer: str, is_last: bool) -> str:
-    """Respuesta de la IA durante el diagnóstico."""
+    """Respuesta de la IA durante el diagnóstico.
+    Si la IA está disponible, genera preguntas dinámicas basadas en las respuestas previas
+    para profundizar en el nivel real del gerente."""
     if is_last:
-        # Cierre del diagnóstico — intentamos resumen con Gemini, si no, fallback fijo
-        if _gemini_available():
+        if _ai_available():
             try:
                 system = (
                     "Eres un MAE experto en competencias gerenciales. "
@@ -289,39 +348,50 @@ def get_diagnosis_response(question_number: int, user_answer: str, is_last: bool
                     "Responde siempre en español, sin emojis."
                 )
                 user = f"Última respuesta del gerente: {user_answer}\nGenera el cierre del diagnóstico."
-                return _call_gemini(system, user)
+                return _call_ai_api(system, user)
             except Exception as e:
-                logger.error(f"Gemini falló en cierre diagnóstico: {e}")
+                logger.error(f"IA falló en cierre diagnóstico: {e}")
         return (
             "Gracias por completar el diagnóstico. He analizado tus respuestas.\n\n"
             "En breve recibirás tu nivel asignado y tu ruta de capacitación personalizada. "
             "Tu MAE revisará este diagnóstico antes de confirmar el resultado."
         )
 
-    # Avanzar a la siguiente pregunta — opcionalmente con un ack generado por IA
-    next_q = DIAGNOSIS_QUESTIONS[question_number]
-    if _gemini_available():
+    # Generar siguiente pregunta — dinámica con IA, o fallback a pregunta fija
+    topic = DIAGNOSIS_QUESTIONS[question_number]
+    if _ai_available():
         try:
+            prev_topic = DIAGNOSIS_QUESTIONS[question_number - 1]
             system = (
-                "Eres un evaluador experto en competencias gerenciales en una fase de diagnóstico. "
-                "El gerente acaba de responder una pregunta situacional. "
-                "Devuelve UNA SOLA oración breve de acuse (máx 15 palabras), neutra, sin valorar, "
-                "en español, sin emojis. No agregues la siguiente pregunta — solo el acuse."
+                "Eres un evaluador experto en competencias gerenciales realizando un diagnóstico. "
+                "El gerente acaba de responder una pregunta situacional. Tu tarea es doble:\n\n"
+                "1. Genera UNA SOLA oración breve de acuse (máx 15 palabras), neutra, sin valorar, en español.\n"
+                "2. Luego, basándote en la respuesta del gerente, formula UNA pregunta de seguimiento "
+                "que profundice en el tema '{topic}' y que te permita evaluar mejor su nivel real. "
+                "La pregunta debe ser abierta, situacional y obligarlo a explicar su razonamiento. "
+                "No repitas la pregunta original — adáptala a lo que el gerente ya respondió.\n\n"
+                "Formato de respuesta:\n"
+                "[Acuse]\n\n"
+                "[Pregunta de seguimiento]\n\n"
+                "Sin emojis. Sin valorar la respuesta previa."
+            ).replace('{topic}', topic['text'].split('**')[1] if '**' in topic['text'] else 'competencias gerenciales')
+            user = (
+                f"Pregunta anterior ({prev_topic['text'].split(chr(10))[0]}): {prev_topic['text']}\n\n"
+                f"Respuesta del gerente: {user_answer}\n\n"
+                f"Genera el acuse y la siguiente pregunta de diagnóstico."
             )
-            user = f"Pregunta que se respondió: {DIAGNOSIS_QUESTIONS[question_number - 1]['text']}\n\nRespuesta del gerente: {user_answer}"
-            ack = _call_gemini(system, user)
-            return f"{ack}\n\n{next_q['text']}"
+            return _call_ai_api(system, user)
         except Exception as e:
-            logger.error(f"Gemini falló en acuse diagnóstico: {e}")
+            logger.error(f"IA falló en pregunta dinámica diagnóstico: {e}")
 
     ack = random.choice(DIAGNOSIS_ACK)
-    return f"{ack}\n\n{next_q['text']}"
+    return f"{ack}\n\n{topic['text']}"
 
 
 # ── Chatbox de casos ──────────────────────────────────────────────────────────
 
 def _build_case_history(session, limit: int = 12) -> list[dict]:
-    """Construye historial de mensajes para enviar como contexto a Gemini."""
+    """Construye historial de mensajes para enviar como contexto a la IA."""
     msgs = list(session.messages.order_by('-created_at')[:limit])
     msgs.reverse()
     history = []
@@ -331,38 +401,77 @@ def _build_case_history(session, limit: int = 12) -> list[dict]:
     return history
 
 
-def _call_gemini_with_history(system_prompt: str, history: list[dict], new_user_text: str) -> str:
-    """Variante de _call_gemini con historial multi-turno."""
-    api_key = settings.GEMINI_API_KEY.strip()
-    model = getattr(settings, 'GEMINI_MODEL', 'gemini-3.5-flash')
-    url = GEMINI_ENDPOINT.format(model=model, key=api_key)
+def _call_ai_api_with_history(system_prompt: str, history: list[dict], new_user_text: str) -> str:
+    """Variante con historial multi-turno."""
+    config = _get_active_config()
 
-    contents = list(history)
-    contents.append({"role": "user", "parts": [{"text": new_user_text}]})
+    if config and config.api_url and config.api_key:
+        api_url = config.api_url
+        api_key = config.api_key
+        provider = config.provider
+        model = config.model_name or 'default'
+    else:
+        api_key = settings.GEMINI_API_KEY.strip()
+        model = getattr(settings, 'GEMINI_MODEL', 'gemini-3.5-flash')
+        api_url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent?key={api_key}"
+        )
+        provider = 'gemini'
 
-    payload = {
-        "system_instruction": {"parts": [{"text": system_prompt}]},
-        "contents": contents,
-        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 500},
-    }
-
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode('utf-8'),
-        headers={'Content-Type': 'application/json'},
-        method='POST',
-    )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        body = resp.read().decode('utf-8')
-    data = json.loads(body)
-    candidates = data.get('candidates') or []
-    if not candidates:
-        raise RuntimeError(f"Gemini no devolvió candidatos: {data}")
-    parts = candidates[0].get('content', {}).get('parts', [])
-    text = ''.join(p.get('text', '') for p in parts).strip()
-    if not text:
-        raise RuntimeError("Gemini devolvió respuesta vacía.")
-    return text
+    if provider == 'gemini' or 'generativelanguage' in api_url:
+        contents = list(history)
+        contents.append({"role": "user", "parts": [{"text": new_user_text}]})
+        payload = {
+            "system_instruction": {"parts": [{"text": system_prompt}]},
+            "contents": contents,
+            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 500},
+        }
+        req = urllib.request.Request(
+            api_url, data=json.dumps(payload).encode('utf-8'),
+            headers={'Content-Type': 'application/json'}, method='POST',
+        )
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = resp.read().decode('utf-8')
+        data = json.loads(body)
+        candidates = data.get('candidates') or []
+        if not candidates:
+            raise RuntimeError(f"API no devolvió candidatos: {data}")
+        parts = candidates[0].get('content', {}).get('parts', [])
+        text = ''.join(p.get('text', '') for p in parts).strip()
+        if not text:
+            raise RuntimeError("API devolvió respuesta vacía.")
+        return text
+    else:
+        messages = [{"role": "system", "content": system_prompt}]
+        for h in history:
+            role = "assistant" if h["role"] == "model" else "user"
+            content = h.get("parts", [{}])[0].get("text", "")
+            messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": new_user_text})
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 500,
+        }
+        req = urllib.request.Request(
+            api_url, data=json.dumps(payload).encode('utf-8'),
+            headers={
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {api_key}',
+            }, method='POST',
+        )
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = resp.read().decode('utf-8')
+        data = json.loads(body)
+        choices = data.get('choices') or []
+        if not choices:
+            raise RuntimeError(f"API no devolvió choices: {data}")
+        text = choices[0].get('message', {}).get('content', '').strip()
+        if not text:
+            raise RuntimeError("API devolvió respuesta vacía.")
+        return text
 
 
 def _should_advance_phase(session) -> bool:
@@ -380,9 +489,31 @@ def _should_advance_phase(session) -> bool:
 
 
 def _build_phase_prompt(case, session, quick_reply_option='', quick_reply_reason='') -> str:
-    """Construye el system prompt según la fase actual."""
+    """Construye el system prompt según la fase actual, incluyendo contexto del nivel del gerente."""
     phase = session.current_phase
     phase_instruction = PHASE_SYSTEM_PROMPTS.get(phase, "")
+
+    # Contexto del nivel del gerente (diagnóstico)
+    level_context = ""
+    try:
+        profile = session.user.manager_profile
+        if profile.level != 'sin_nivel':
+            level_context = (
+                f"\n\nEl gerente fue evaluado con nivel '{profile.get_level_display()}' "
+                f"en competencias gerenciales. Ajusta la profundidad y exigencia de tus "
+                f"preguntas y retos a ese nivel."
+            )
+            # Incluir dictamen del MAE si existe
+            try:
+                d_session = session.user.diagnosis_session
+                if d_session and d_session.mae_verdict:
+                    level_context += (
+                        f" Observaciones del MAE sobre el gerente: {d_session.mae_verdict}"
+                    )
+            except Exception:
+                pass
+    except Exception:
+        pass
 
     qr_directive = ""
     if quick_reply_option:
@@ -412,7 +543,8 @@ def _build_phase_prompt(case, session, quick_reply_option='', quick_reply_reason
         "Eres un MAE gerencial experto que entrena gerentes mediante casos situacionales. "
         f"El caso actual es: '{case.title}' (categoría: {case.get_category_display()}, "
         f"dificultad: {case.get_difficulty_display()}).\n"
-        f"Descripción del caso: {case.description}\n\n"
+        f"Descripción del caso: {case.description}\n"
+        f"{level_context}\n"
         f"{phase_instruction}\n\n"
         "Habla en español, tono respetuoso, sin emojis. "
         "No des recetas; haz preguntas que lo hagan pensar. "
@@ -433,7 +565,7 @@ def get_ai_response(user_message: str, session, case, quick_reply_option: str = 
             return generate_final_feedback(session), False
 
         # Modo Gemini
-        if _gemini_available():
+        if _ai_available():
             try:
                 qr_hint = ""
                 if quick_reply_option:
@@ -452,8 +584,8 @@ def get_ai_response(user_message: str, session, case, quick_reply_option: str = 
                 if history and history[-1]["role"] == "user":
                     last_user_text = history[-1]["parts"][0]["text"]
                     history = history[:-1]
-                    return _call_gemini_with_history(system, history, last_user_text + qr_hint), False
-                return _call_gemini_with_history(system, history, user_message + qr_hint), False
+                    return _call_ai_api_with_history(system, history, last_user_text + qr_hint), False
+                return _call_ai_api_with_history(system, history, user_message + qr_hint), False
             except Exception as e:
                 logger.error(f"Gemini falló en chat de caso, usando fallback: {e}")
 
@@ -502,10 +634,22 @@ def get_ai_response(user_message: str, session, case, quick_reply_option: str = 
 
 
 def generate_final_feedback(session) -> str:
-    """Retroalimentación final al cerrar un caso. Usa Gemini si está disponible."""
+    """Retroalimentación final al cerrar un caso. Usa IA si está disponible."""
     count = session.messages.filter(role='user').count()
 
-    if _gemini_available():
+    # Contexto del nivel del gerente
+    level_note = ""
+    try:
+        profile = session.user.manager_profile
+        if profile.level != 'sin_nivel':
+            level_note = (
+                f"\nEl gerente tiene nivel '{profile.get_level_display()}' "
+                f"según su diagnóstico. Considera este nivel al evaluar sus respuestas."
+            )
+    except Exception:
+        pass
+
+    if _ai_available():
         try:
             history = _build_case_history(session, limit=30)
             transcript = "\n".join(
@@ -517,10 +661,11 @@ def generate_final_feedback(session) -> str:
                 "Genera una retroalimentación final breve (4-6 oraciones, en español, sin emojis) que: "
                 "(1) reconozca lo que el gerente analizó bien, (2) señale uno o dos puntos a profundizar, "
                 "(3) recuerde que su MAE humano revisará la sesión y emitirá el dictamen final."
+                + level_note
             )
-            return _call_gemini(system, f"Transcripción de la sesión:\n{transcript}")
+            return _call_ai_api(system, f"Transcripción de la sesión:\n{transcript}")
         except Exception as e:
-            logger.error(f"Gemini falló en feedback final: {e}")
+            logger.error(f"IA falló en feedback final: {e}")
 
     if count < 3:
         return (

@@ -1,0 +1,155 @@
+{% extends 'base.html' %}
+{% block title %}Configuracion API — Gerente IA{% endblock %}
+{% block nav_api_config %}active{% endblock %}
+{% block content %}
+<div class="dashboard-page">
+  <div class="dashboard-header">
+    <div>
+      <h1 class="dashboard-title">Configuracion de la <span class="highlight">API de IA</span></h1>
+      <p class="dashboard-sub">Selecciona tu proveedor de IA. La URL del endpoint se autocompleta — solo necesitas tu API Key.</p>
+    </div>
+  </div>
+
+  <div class="dashboard-grid" style="margin-top:1.5rem">
+    <div class="card" style="grid-column:1/-1">
+      <h3>Proveedor activo</h3>
+
+      {% if ai_config %}
+      <div id="active-status" style="margin-top:.8rem;padding:.6rem .8rem;background:var(--bg-3);border-radius:8px;font-size:.8rem">
+        <span style="color:var(--accent-green)">● Activo:</span>
+        {{ ai_config.get_provider_display }}
+        {% if ai_config.model_name %}— {{ ai_config.model_name }}{% endif %}
+        <span style="color:var(--text-3);margin-left:.5rem">({{ ai_config.updated_at|date:"d/m/Y H:i" }})</span>
+      </div>
+      {% else %}
+      <div id="active-status" style="margin-top:.8rem;padding:.6rem .8rem;background:var(--bg-3);border-radius:8px;font-size:.8rem">
+        <span style="color:#f97316">● Sin configurar:</span>
+        Usando fallback de variables de entorno (Gemini).
+      </div>
+      {% endif %}
+
+      <form method="POST" style="margin-top:1rem" id="api-config-form">
+        {% csrf_token %}
+        <input type="hidden" name="save_api_config" value="1">
+
+        <div class="form-group" style="margin-bottom:.8rem">
+          <label style="font-size:.8rem;color:var(--text-2)">Proveedor</label>
+          <select name="provider" id="provider-select" style="width:100%;padding:.5rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;margin-top:.2rem" onchange="onProviderChange()">
+            <option value="openai" {% if ai_config.provider == 'openai' %}selected{% endif %}>OpenAI</option>
+            <option value="deepseek" {% if ai_config.provider == 'deepseek' %}selected{% endif %}>DeepSeek</option>
+            <option value="groq" {% if ai_config.provider == 'groq' %}selected{% endif %}>Groq</option>
+            <option value="mistral" {% if ai_config.provider == 'mistral' %}selected{% endif %}>Mistral AI</option>
+            <option value="together" {% if ai_config.provider == 'together' %}selected{% endif %}>Together AI</option>
+            <option value="gemini" {% if ai_config.provider == 'gemini' %}selected{% endif %}>Google Gemini</option>
+            <option value="openai_compatible" {% if ai_config.provider == 'openai_compatible' %}selected{% endif %}>Otro (OpenAI Compatible)</option>
+          </select>
+          <span style="font-size:.7rem;color:var(--text-3);display:block;margin-top:.2rem" id="provider-hint"></span>
+        </div>
+
+        <div class="form-group" style="margin-bottom:.8rem">
+          <label style="font-size:.8rem;color:var(--text-2)">URL del endpoint</label>
+          <input type="url" name="api_url" id="api-url" value="{{ ai_config.api_url|default:'' }}" placeholder="https://api.openai.com/v1/chat/completions" style="width:100%;padding:.5rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;margin-top:.2rem;font-family:monospace;font-size:.8rem">
+        </div>
+
+        <div class="form-group" style="margin-bottom:.8rem">
+          <label style="font-size:.8rem;color:var(--text-2)">API Key</label>
+          <input type="password" name="api_key" value="{{ ai_config.api_key|default:'' }}" placeholder="sk-..." style="width:100%;padding:.5rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;margin-top:.2rem;font-family:monospace;font-size:.8rem">
+        </div>
+
+        <div class="form-group" style="margin-bottom:1rem">
+          <label style="font-size:.8rem;color:var(--text-2)">Nombre del modelo <span style="color:var(--text-3)" id="model-hint">(solo OpenAI/compatible)</span></label>
+          <input type="text" name="model_name" id="model-name" value="{{ ai_config.model_name|default:'' }}" placeholder="gpt-4o, deepseek-chat, etc." style="width:100%;padding:.5rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;margin-top:.2rem;font-size:.8rem">
+        </div>
+
+        <button type="submit" class="btn-primary">Guardar configuracion</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+const PROVIDER_DATA = {
+  openai: {
+    endpoint: 'https://api.openai.com/v1/chat/completions',
+    model: 'gpt-4o',
+    hint: 'API de OpenAI. Modelos: gpt-4o, gpt-4-turbo, gpt-3.5-turbo.',
+    modelOptional: false,
+  },
+  deepseek: {
+    endpoint: 'https://api.deepseek.com/v1/chat/completions',
+    model: 'deepseek-chat',
+    hint: 'API de DeepSeek. Modelos: deepseek-chat, deepseek-reasoner.',
+    modelOptional: false,
+  },
+  groq: {
+    endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+    model: 'llama-3.3-70b-versatile',
+    hint: 'API de Groq (inferencia rápida). Modelos: llama-3.3-70b, mixtral-8x7b, gemma2-9b.',
+    modelOptional: false,
+  },
+  mistral: {
+    endpoint: 'https://api.mistral.ai/v1/chat/completions',
+    model: 'mistral-large-latest',
+    hint: 'API de Mistral AI. Modelos: mistral-large, mistral-medium, codestral.',
+    modelOptional: false,
+  },
+  together: {
+    endpoint: 'https://api.together.xyz/v1/chat/completions',
+    model: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+    hint: 'API de Together AI. Modelos: Llama 3.3, Mixtral, Qwen, DeepSeek.',
+    modelOptional: false,
+  },
+  gemini: {
+    endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/',
+    model: '',
+    hint: 'API nativa de Google Gemini. El endpoint usa API Key como query param. Modelo se configura en el endpoint.',
+    modelOptional: true,
+  },
+  openai_compatible: {
+    endpoint: '',
+    model: '',
+    hint: 'Cualquier proveedor con API compatible con formato OpenAI. Ingresa manualmente la URL.',
+    modelOptional: false,
+  }
+};
+
+function onProviderChange() {
+  const select = document.getElementById('provider-select');
+  const provider = select.value;
+  const data = PROVIDER_DATA[provider];
+
+  if (!data) return;
+
+  const urlInput = document.getElementById('api-url');
+  const modelInput = document.getElementById('model-name');
+  const hint = document.getElementById('provider-hint');
+  const modelHint = document.getElementById('model-hint');
+
+  hint.textContent = data.hint;
+
+  if (provider === 'openai_compatible') {
+    urlInput.placeholder = 'https://api.tu-proveedor.com/v1/chat/completions';
+    urlInput.value = urlInput.value || '';
+    modelInput.placeholder = 'nombre-del-modelo';
+    modelHint.textContent = '(requerido)';
+  } else if (provider === 'gemini') {
+    urlInput.value = data.endpoint;
+    urlInput.placeholder = data.endpoint;
+    modelInput.value = '';
+    modelInput.placeholder = 'gemini-2.0-flash';
+    modelHint.textContent = '(opcional — se usa en la URL del endpoint)';
+  } else {
+    urlInput.value = data.endpoint;
+    urlInput.placeholder = data.endpoint;
+    modelInput.value = data.model;
+    modelInput.placeholder = data.model;
+    modelHint.textContent = '(predefinido — podes cambiarlo)';
+  }
+}
+
+// Run on page load to set initial state
+document.addEventListener('DOMContentLoaded', function() {
+  onProviderChange();
+});
+</script>
+{% endblock %}

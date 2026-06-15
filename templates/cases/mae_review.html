@@ -31,7 +31,7 @@
     <div class="card card-wide">
       <h3>📋 Transcripción de la conversación</h3>
       <div class="mae-transcript">
-        {% for msg in messages %}
+        {% for msg in chat_messages %}
         {% if msg.message_type != 'system_info' %}
         <div class="transcript-msg transcript-{{ msg.role }}{% if msg.message_type == 'error_ia' %} transcript-system{% endif %}">
           <div class="transcript-meta">

@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import ManagementCase, CaseSession, ChatMessage, DiagnosisSession, DiagnosisMessage, IAErrorLog
+from .models import ManagementCase, CaseSession, DiagnosisSession, IAErrorLog
 
 
 @admin.register(ManagementCase)
@@ -15,23 +15,10 @@ class CaseSessionAdmin(admin.ModelAdmin):
     list_filter = ('status', 'mae_approved')
     readonly_fields = ('started_at',)
 
-
-@admin.register(ChatMessage)
-class ChatMessageAdmin(admin.ModelAdmin):
-    list_display = ('session', 'role', 'message_type', 'created_at')
-    list_filter = ('role', 'message_type')
-
-
 @admin.register(DiagnosisSession)
 class DiagnosisSessionAdmin(admin.ModelAdmin):
     list_display = ('user', 'status', 'current_question', 'mae_approved', 'mae', 'started_at')
     list_filter = ('status', 'mae_approved')
-
-
-@admin.register(DiagnosisMessage)
-class DiagnosisMessageAdmin(admin.ModelAdmin):
-    list_display = ('session', 'role', 'question_number', 'created_at')
-
 
 @admin.register(IAErrorLog)
 class IAErrorLogAdmin(admin.ModelAdmin):

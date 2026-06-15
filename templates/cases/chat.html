@@ -36,7 +36,7 @@
     </div>
 
     <div class="chat-messages" id="chatMessages">
-      {% for msg in messages %}
+      {% for msg in chat_messages %}
       {% if msg.message_type != 'system_info' %}
       <div class="message message-{{ msg.role }} {% if msg.message_type == 'error_ia' %}message-error{% endif %}">
         <div class="message-bubble">{{ msg.content|linebreaksbr }}</div>

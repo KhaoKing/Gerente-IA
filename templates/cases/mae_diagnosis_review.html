@@ -15,7 +15,7 @@
     <div class="card card-wide">
       <h3>📋 Transcripción de las 5 preguntas</h3>
       <div class="mae-transcript">
-        {% for msg in messages %}
+        {% for msg in chat_messages %}
         <div class="transcript-msg transcript-{{ msg.role }}">
           <div class="transcript-meta">
             <strong>{% if msg.role == 'assistant' %}MAE IA{% else %}{{ session.user.get_full_name }}{% endif %}</strong>

@@ -19,6 +19,9 @@
     </div>
     <div class="nav-center">
       <a href="{% url 'dashboard' %}" class="nav-link {% block nav_dashboard %}{% endblock %}">Dashboard</a>
+      {% if user.is_admin_role %}
+      <a href="{% url 'api_config' %}" class="nav-link {% block nav_api_config %}{% endblock %}">API</a>
+      {% endif %}
     </div>
     <div class="nav-right">
       <div class="nav-user">

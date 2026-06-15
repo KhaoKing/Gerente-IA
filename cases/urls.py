@@ -12,6 +12,8 @@ urlpatterns = [
     path('caso/iniciar/', views.start_case, name='start_case'),
     path('caso/<int:session_id>/chat/', views.chat_view, name='chat'),
     path('caso/<int:session_id>/mensaje/', views.send_message, name='send_message'),
+    # API config
+    path('api/configuracion/', views.api_config, name='api_config'),
     # MAE
     path('mae/revision/<int:session_id>/', views.mae_review, name='mae_review'),
     path('mae/diagnostico/<int:session_id>/', views.mae_diagnosis_review, name='mae_diagnosis_review'),

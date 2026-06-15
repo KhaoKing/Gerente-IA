@@ -65,9 +65,9 @@
             <a href="{% url 'chat' active_session.id %}" class="btn-primary">Continuar con la IA →</a>
           </div>
         {% else %}
-          <div class="card-badge">CHATBOX IA HABILITADO</div>
-          <h3>💬 Listo para conversar con la IA</h3>
-          <p>Tu MAE aprobó tu diagnóstico. Ahora puedes iniciar un caso gerencial y conversar con la IA.</p>
+          <div class="card-badge">ENTRENAMIENTO HABILITADO</div>
+          <h3>💬 Tu espacio de práctica está listo</h3>
+          <p>Tu MAE te dio luz verde. Ya puedes iniciar un caso gerencial y poner a prueba tus habilidades conversando con la IA.</p>
           <div style="margin-top:1rem">
             <a href="{% url 'start_case' %}" class="btn-primary">Iniciar caso con IA →</a>
           </div>
@@ -256,6 +256,21 @@
   </div>
 
   <div class="dashboard-grid" style="margin-top:1.5rem">
+
+    <div class="card" style="grid-column:1/-1">
+      <h3>Configuracion de IA</h3>
+      <p style="font-size:.85rem;color:var(--text-2);margin-top:.3rem">
+        {% if ai_config %}
+        <span style="color:var(--accent-green)">●</span> {{ ai_config.get_provider_display }}{% if ai_config.model_name %} — {{ ai_config.model_name }}{% endif %}
+        {% else %}
+        <span style="color:#f97316">●</span> Sin configurar — usando fallback de variables de entorno.
+        {% endif %}
+      </p>
+      <div style="margin-top:1rem">
+        <a href="{% url 'api_config' %}" class="btn-primary">Configurar API</a>
+      </div>
+    </div>
+
     <div class="card">
       <h3>Gestión del sistema</h3>
       <div style="display:flex;flex-direction:column;gap:.7rem;margin-top:1rem">

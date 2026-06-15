@@ -4,7 +4,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.utils import timezone
-from .models import ManagementCase, CaseSession, ChatMessage, DiagnosisSession, DiagnosisMessage, IAErrorLog
+from .models import ManagementCase, CaseSession, ChatMessage, DiagnosisSession, DiagnosisMessage, IAErrorLog, AIConfiguration
 from .ai_engine import (
     get_ai_response, get_diagnosis_response, get_ia_error_message,
     notify_admin_ia_error, DIAGNOSIS_QUESTIONS, FINISH_TRIGGERS,
@@ -126,7 +126,9 @@ def dashboard(request):
 
     elif user.is_admin_role:
         from accounts.models import User as UserModel
+
         ia_errors = IAErrorLog.objects.order_by('-created_at')[:10]
+        ai_config = AIConfiguration.get_active()
         context.update({
             'total_users': UserModel.objects.count(),
             'total_managers': UserModel.objects.filter(role='gerente').count(),
@@ -135,9 +137,46 @@ def dashboard(request):
             'active_sessions': CaseSession.objects.filter(status='en_progreso').count(),
             'pending_reviews': CaseSession.objects.filter(status='completado').count(),
             'ia_errors': ia_errors,
+            'ai_config': ai_config,
         })
 
     return render(request, 'cases/dashboard.html', context)
+
+
+# ── Configuración de API ───────────────────────────────────────────────────────
+
+@login_required
+def api_config(request):
+    from django.contrib.auth.decorators import user_passes_test
+    if not request.user.is_admin_role:
+        return redirect('dashboard')
+
+    ai_config = AIConfiguration.get_active()
+
+    if request.method == 'POST' and 'save_api_config' in request.POST:
+        provider = request.POST.get('provider', 'openai_compatible')
+        api_url = request.POST.get('api_url', '').strip()
+        api_key = request.POST.get('api_key', '').strip()
+        model_name = request.POST.get('model_name', '').strip()
+
+        if api_url and api_key:
+            AIConfiguration.objects.all().update(is_active=False)
+            AIConfiguration.objects.create(
+                name='Configuracion Principal',
+                provider=provider,
+                api_url=api_url,
+                api_key=api_key,
+                model_name=model_name,
+                is_active=True,
+            )
+            from django.contrib import messages
+            messages.success(request, 'Configuracion de IA guardada correctamente.')
+        else:
+            from django.contrib import messages
+            messages.error(request, 'La URL y la API Key son obligatorias.')
+        return redirect('api_config')
+
+    return render(request, 'cases/api_config.html', {'ai_config': ai_config})
 
 
 # ── Diagnóstico ────────────────────────────────────────────────────────────────
@@ -216,8 +255,8 @@ def diagnosis_chat(request):
         session = request.user.diagnosis_session
     except DiagnosisSession.DoesNotExist:
         return redirect('start_diagnosis')
-    messages = session.messages.all()
-    return render(request, 'cases/diagnosis_chat.html', {'session': session, 'messages': messages})
+    chat_messages = session.messages.all()
+    return render(request, 'cases/diagnosis_chat.html', {'session': session, 'chat_messages': chat_messages})
 
 
 @login_required
@@ -355,11 +394,11 @@ def start_case(request):
 @login_required
 def chat_view(request, session_id):
     session = get_object_or_404(CaseSession, id=session_id, user=request.user)
-    messages = session.messages.all()
-    last_ai_msg = messages.filter(role='assistant').last()
+    chat_messages = session.messages.all()
+    last_ai_msg = chat_messages.filter(role='assistant').last()
     phase_label = dict(CaseSession.PHASE_CHOICES).get(session.current_phase, '')
     context = {
-        'session': session, 'messages': messages, 'case': session.case,
+        'session': session, 'chat_messages': chat_messages, 'case': session.case,
         'last_ai_timestamp': last_ai_msg.created_at.isoformat() if last_ai_msg else '',
         'current_phase_label': phase_label,
     }
@@ -506,7 +545,7 @@ def mae_review(request, session_id):
         return redirect('dashboard')
 
     session = get_object_or_404(CaseSession, id=session_id)
-    messages = session.messages.all()
+    chat_messages = session.messages.all()
 
     if request.method == 'POST':
         verdict = request.POST.get('mae_verdict', '').strip()
@@ -522,7 +561,7 @@ def mae_review(request, session_id):
         return redirect('dashboard')
 
     return render(request, 'cases/mae_review.html', {
-        'session': session, 'messages': messages, 'case': session.case,
+        'session': session, 'chat_messages': chat_messages, 'case': session.case,
     })
 
 
@@ -533,7 +572,7 @@ def mae_diagnosis_review(request, session_id):
         return redirect('dashboard')
 
     session = get_object_or_404(DiagnosisSession, id=session_id)
-    messages = session.messages.all()
+    chat_messages = session.messages.all()
 
     if request.method == 'POST':
         verdict = request.POST.get('mae_verdict', '').strip()
@@ -549,5 +588,5 @@ def mae_diagnosis_review(request, session_id):
         return redirect('dashboard')
 
     return render(request, 'cases/mae_diagnosis_review.html', {
-        'session': session, 'messages': messages,
+        'session': session, 'chat_messages': chat_messages,
     })
