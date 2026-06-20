@@ -14,11 +14,14 @@
 
   <div class="mae-review-grid">
     <div class="card" style="grid-column:1/-1">
-      <div style="display:flex;gap:1rem;flex-wrap:wrap">
+      <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:center">
         <span class="tag">{{ case.get_category_display }}</span>
         <span class="tag">{{ case.get_difficulty_display }}</span>
         <span class="tag">Fase: {{ session.get_current_phase_display }}</span>
-        {% if session.score %}<span class="tag">Puntuación IA: {{ session.score }}</span>{% endif %}
+        <span class="tag" style="background:{% if session.nchs_score < 0 %}#f8717133{% else %}#22c55e33{% endif %};color:{% if session.nchs_score < 0 %}#f87171{% else %}var(--accent-green){% endif %}">
+          NC_hs: {{ session.nchs_score|floatformat:3 }}
+        </span>
+        <span style="font-size:.78rem;color:var(--text-3)">n={{ session.n_interactions }} Ac={{ session.acumulado_ac }} Sm={{ session.acumulado_sm }} Ts={{ session.acumulado_ts }}</span>
       </div>
       {% if session.ia_feedback %}
       <div style="margin-top:1rem;padding:1rem;background:var(--bg-3);border-radius:10px;font-size:.85rem;color:var(--text-2)">
@@ -40,6 +43,10 @@
             {% if msg.message_type == 'quick_reply' %}<span style="color:var(--accent)">Respuesta rápida</span>{% endif %}
             {% if msg.message_type == 'error_ia' %}<span style="color:#f97316">Error IA</span>{% endif %}
             {% if msg.response_time_seconds %}<span style="color:var(--text-3)">Tardó {{ msg.response_time_seconds|floatformat:0 }}s</span>{% endif %}
+            {% if msg.classification_variable %}<span style="color:{% if msg.classification_variable == 'Ts' %}#f87171{% elif msg.classification_variable == 'Sm' %}var(--accent){% else %}var(--accent-green){% endif %};font-weight:600">Clasificación: {{ msg.classification_variable }}</span>{% endif %}
+            {% if msg.latency_reading_ms %}<span style="color:var(--text-3)">Lectura: {{ msg.latency_reading_ms }}ms</span>{% endif %}
+            {% if msg.latency_execution_ms %}<span style="color:var(--text-3)">Ejecución: {{ msg.latency_execution_ms }}ms</span>{% endif %}
+            {% if msg.backspace_count %}<span style="color:var(--text-3)">Backspaces: {{ msg.backspace_count }}</span>{% endif %}
           </div>
           <p>{{ msg.content|linebreaksbr }}</p>
         </div>

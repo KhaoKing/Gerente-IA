@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+{% block title %}Pre-evaluación — {{ case.title }}{% endblock %}
+{% block content %}
+<div class="mae-review-page">
+  <div class="mae-review-header">
+    <h1>📋 Antes de comenzar</h1>
+    <p style="color:var(--text-2);font-size:.875rem;margin-top:.3rem">
+      Caso: <strong>{{ case.title }}</strong>
+    </p>
+  </div>
+
+  <div class="mae-review-grid">
+    <div class="card card-wide">
+      <p style="color:var(--text-2);margin-bottom:1.5rem">
+        Para calibrar el simulador, necesitamos conocer tu estado mental actual como líder.
+        Responde con honestidad — no hay respuestas correctas o incorrectas.
+      </p>
+
+      <form method="POST">
+        {% csrf_token %}
+
+        <div class="form-group" style="margin-bottom:1.5rem">
+          <label>En una escala del 1 al 5, ¿qué tan en control te sientes de tu entorno laboral actual?</label>
+          <div class="freq-options">
+            {% for i in "12345" %}
+            <input type="radio" id="ctrl_{{ i }}" name="perceived_control_score" value="{{ i }}" {% if i == '3' %}checked{% endif %}>
+            <label class="freq-label" for="ctrl_{{ i }}">
+              <strong>{{ i }}</strong>
+              <small>{% cycle 'Muy bajo' 'Bajo' 'Moderado' 'Alto' 'Muy alto' %}</small>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:1.5rem">
+          <label>En una escala del 1 al 5, ¿qué tanto confías en el criterio de una IA para apoyar tus decisiones gerenciales?</label>
+          <div class="freq-options">
+            {% for i in "12345" %}
+            <input type="radio" id="trust_{{ i }}" name="ia_trust_baseline" value="{{ i }}" {% if i == '3' %}checked{% endif %}>
+            <label class="freq-label" for="trust_{{ i }}">
+              <strong>{{ i }}</strong>
+              <small>{% cycle 'Nada' 'Poco' 'Moderado' 'Bastante' 'Total' %}</small>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:1.5rem">
+          <label>Describe tu estilo de liderazgo en una frase. ¿Cómo te definirías como líder?</label>
+          <textarea name="initial_ego_statement" rows="3" class="eval-textarea"
+            placeholder="Ej: Soy un líder directo que confía en su instinto ante la crisis..." required></textarea>
+        </div>
+
+        <button type="submit" class="btn-primary">Comenzar simulación →</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

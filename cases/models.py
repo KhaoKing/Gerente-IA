@@ -87,6 +87,7 @@ class CaseSession(models.Model):
         ('completado', 'Completado'),
         ('en_revision', 'En Revisión por MAE'),
         ('evaluado', 'Evaluado'),
+        ('abandoned', 'Abandonada'),
     ]
     PHASE_CHOICES = [
         ('ambiguity', 'Fase 1: Ambigüedad'),
@@ -94,21 +95,40 @@ class CaseSession(models.Model):
         ('dilemma', 'Fase 3: Dilema'),
         ('completed', 'Fases Completadas'),
     ]
+    ABANDONMENT_REASON_CHOICES = [
+        ('electrical_failure', 'Falla eléctrica'),
+        ('internet_loss', 'Pérdida de internet'),
+        ('user_frustration', 'Frustración del usuario'),
+        ('other', 'Otro'),
+    ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='case_sessions')
     case = models.ForeignKey(ManagementCase, on_delete=models.CASCADE, related_name='sessions')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='en_progreso')
     current_phase = models.CharField(max_length=20, choices=PHASE_CHOICES, default='ambiguity')
-    score = models.IntegerField('Puntuación IA', null=True, blank=True)
-    ia_feedback = models.TextField('Retroalimentación IA', blank=True)
+    # Variables acumuladoras del algoritmo NC_hs
+    n_interactions = models.IntegerField('Variable n: total de ciclos', default=0)
+    acumulado_ac = models.IntegerField('Variable Ac: Acoplamientos Exitosos', default=0)
+    acumulado_sm = models.IntegerField('Variable Sm: Sincronía Metódica', default=0)
+    acumulado_ts = models.IntegerField('Variable Ts: Trauma Sistémico', default=0)
+    nchs_score = models.DecimalField('Índice NC_hs', max_digits=4, decimal_places=3, default=0.000)
     # Dictamen del MAE
     mae = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='reviewed_sessions', limit_choices_to={'role': 'mae'}
     )
+    teacher = models.ForeignKey(
+        'TeacherProfile', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='supervised_sessions'
+    )
     mae_verdict = models.TextField('Dictamen del MAE', blank=True)
-    mae_approved = models.BooleanField(null=True, blank=True)   # True=aprobado, False=rechazado
+    mae_approved = models.BooleanField(null=True, blank=True)
     mae_reviewed_at = models.DateTimeField(null=True, blank=True)
+    ia_feedback = models.TextField('Retroalimentación IA', blank=True)
+    # Abandono por fallas de entorno
+    last_heartbeat = models.DateTimeField(null=True, blank=True)
+    abandonment_reason = models.CharField(max_length=50, null=True, blank=True, choices=ABANDONMENT_REASON_CHOICES)
+    abandonment_justification = models.TextField(blank=True)
     started_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
@@ -126,20 +146,37 @@ class ChatMessage(models.Model):
     ]
     MESSAGE_TYPE_CHOICES = [
         ('normal', 'Normal'),
-        ('quick_reply', 'Respuesta Rápida'),   # botones de acuerdo/desacuerdo
+        ('quick_reply', 'Respuesta Rápida'),
         ('error_ia', 'Error de IA'),
         ('system_info', 'Info del Sistema'),
+    ]
+    ENTROPY_NODE_CHOICES = [
+        ('ambiguity', 'Ambigüedad'),
+        ('time_pressure', 'Presión Temporal'),
+        ('ethical_dilemma', 'Dilema Ético'),
+    ]
+    CLASSIFICATION_CHOICES = [
+        ('Ac', 'Acoplamiento Exitoso'),
+        ('Sm', 'Sincronía Metódica'),
+        ('Ts', 'Trauma Sistémico'),
     ]
 
     session = models.ForeignKey(CaseSession, on_delete=models.CASCADE, related_name='messages')
     role = models.CharField(max_length=10, choices=ROLE_CHOICES)
     content = models.TextField()
     message_type = models.CharField(max_length=20, choices=MESSAGE_TYPE_CHOICES, default='normal')
-    # Para quick replies: guardamos la opción elegida y la razón dada
-    quick_reply_option = models.CharField(max_length=50, blank=True)   # 'agree'|'disagree'|'incomplete'
-    # Tiempo que tardó el gerente en responder desde el último mensaje de la IA (en segundos)
+    quick_reply_option = models.CharField(max_length=50, blank=True)
+    # Clasificación del LLM (evaluación de segundo orden)
+    classification_variable = models.CharField(max_length=2, null=True, blank=True, choices=CLASSIFICATION_CHOICES)
+    ai_justification = models.TextField(blank=True)
+    # Nodo de entropía forzada
+    entropy_node = models.CharField(max_length=20, choices=ENTROPY_NODE_CHOICES, default='ambiguity')
+    # Telemetría fina (milisegundos)
+    latency_reading_ms = models.IntegerField('Tiempo de lectura (ms)', null=True, blank=True)
+    latency_execution_ms = models.IntegerField('Tiempo de ejecución (ms)', null=True, blank=True)
+    backspace_count = models.IntegerField('Conteo de backspaces', null=True, blank=True)
+    # Métricas legacy (segundos) — mantenidas para compatibilidad
     response_time_seconds = models.FloatField('Tiempo de respuesta (seg)', null=True, blank=True)
-    # Tiempo acumulado de pausas >= 5s mientras escribía (en segundos)
     total_pause_seconds = models.FloatField('Tiempo en pausa (seg)', null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -150,6 +187,61 @@ class ChatMessage(models.Model):
         ordering = ['created_at']
         verbose_name = 'Mensaje de Chat'
         verbose_name_plural = 'Mensajes de Chat'
+
+
+# ── Perfil del Docente / Observador de Segundo Orden ────────────────────────────
+
+class TeacherProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='teacher_profile')
+    academic_degree = models.CharField('Grado académico', max_length=100)
+    institution_origin = models.CharField('Institución de origen', max_length=100)
+    research_line = models.CharField('Línea de investigación', max_length=150)
+    is_active_tutor = models.BooleanField('Tutor activo', default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Docente: {self.user.get_full_name()} — {self.academic_degree}"
+
+    class Meta:
+        verbose_name = 'Perfil de Docente'
+        verbose_name_plural = 'Perfiles de Docentes'
+
+
+# ── Pre-evaluación (línea base del ego antes de la sesión) ──────────────────────
+
+class PreEvaluation(models.Model):
+    session = models.OneToOneField(CaseSession, on_delete=models.CASCADE, related_name='pre_evaluation')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='pre_evaluations')
+    perceived_control_score = models.IntegerField('Control percibido (1-5)')
+    ia_trust_baseline = models.IntegerField('Confianza en IA (1-5)')
+    initial_ego_statement = models.TextField('Declaración del ego inicial')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Pre-eval de {self.user.get_full_name()} — Sesión {self.session_id}"
+
+    class Meta:
+        verbose_name = 'Pre-evaluación'
+        verbose_name_plural = 'Pre-evaluaciones'
+
+
+# ── Post-autopsia cognitiva (reflexión tras la crisis) ──────────────────────────
+
+class PostAutopsy(models.Model):
+    session = models.OneToOneField(CaseSession, on_delete=models.CASCADE, related_name='post_autopsy')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='post_autopsies')
+    shock_reflection = models.TextField('Reflexión del choque')
+    negotiation_strategy = models.TextField('Estrategia de negociación')
+    law_sovereignty = models.TextField('Ley 1: Protocolo de última palabra')
+    law_identity = models.TextField('Ley 4: Elemento inalterable')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Post-autopsia de {self.user.get_full_name()} — Sesión {self.session_id}"
+
+    class Meta:
+        verbose_name = 'Post-autopsia'
+        verbose_name_plural = 'Post-autopsias'
 
 
 # ── Configuración de API de IA ─────────────────────────────────────────────────

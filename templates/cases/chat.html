@@ -95,54 +95,81 @@
 {% block extra_js %}
 <script>
 const SEND_URL = "{% url 'send_message' session.id %}";
+const HEARTBEAT_URL = "{% url 'heartbeat' session.id %}";
 const CSRF_TOKEN = "{{ csrf_token }}";
 const chatMessages = document.getElementById('chatMessages');
 const messageInput = document.getElementById('messageInput');
 const sendBtn = document.getElementById('sendBtn');
 const LAST_AI_TIME = "{{ last_ai_timestamp }}";
 let lastAiTimestamp = LAST_AI_TIME ? new Date(LAST_AI_TIME) : null;
+// Timestamp exacto en que la IA terminó de renderizar (para latency_reading_ms)
+let lastAiRenderTime = lastAiTimestamp ? lastAiTimestamp.getTime() : Date.now();
 
 let activeQuickOption = '';
 
-// ── Detección de pausas al escribir ────────────────────────────────────────────
+// ── Telemetría fina ────────────────────────────────────────────────────────────
+let firstKeyTime = null;          // primera pulsación del ciclo actual
+let backspaceCounter = 0;         // conteo de backspaces
+let latencyReadingMs = null;      // ms entre render IA y primera tecla
+let latencyExecutionMs = null;    // ms entre primera tecla y submit
+
+// ── Detección de pausas al escribir (legacy) ────────────────────────────────────
 let typingPauseTimer = null;
 let pauseAccumulator = 0;
 let pauseTickInterval = null;
-const PAUSE_THRESHOLD = 5; // segundos
+const PAUSE_THRESHOLD = 5;
 
 function startPauseDetection() {
   clearInterval(pauseTickInterval);
   pauseTickInterval = null;
   clearTimeout(typingPauseTimer);
   typingPauseTimer = setTimeout(() => {
-    // El usuario lleva 5+ seg sin escribir: empezamos a acumular
-    pauseTickInterval = setInterval(() => {
-      pauseAccumulator += 1;
-    }, 1000);
+    pauseTickInterval = setInterval(() => { pauseAccumulator += 1; }, 1000);
   }, PAUSE_THRESHOLD * 1000);
 }
 
 function resetPauseDetection() {
   clearTimeout(typingPauseTimer);
-  if (pauseTickInterval) {
-    clearInterval(pauseTickInterval);
-    pauseTickInterval = null;
-  }
-  // Si había un contador activo, reiniciamos la cuenta atrás
+  if (pauseTickInterval) { clearInterval(pauseTickInterval); pauseTickInterval = null; }
   typingPauseTimer = setTimeout(() => {
-    pauseTickInterval = setInterval(() => {
-      pauseAccumulator += 1;
-    }, 1000);
+    pauseTickInterval = setInterval(() => { pauseAccumulator += 1; }, 1000);
   }, PAUSE_THRESHOLD * 1000);
 }
 
-messageInput?.addEventListener('input', resetPauseDetection);
-messageInput?.addEventListener('focus', startPauseDetection);
-messageInput?.addEventListener('blur', () => {
-  clearTimeout(typingPauseTimer);
-  clearInterval(pauseTickInterval);
-  pauseTickInterval = null;
-});
+// ── Captura de primera tecla (latency_reading_ms) ─────────────────────────────
+function onFirstKeydown(e) {
+  if (firstKeyTime === null) {
+    firstKeyTime = performance.now();
+    latencyReadingMs = Math.round(firstKeyTime - lastAiRenderTime);
+  }
+  // Contar backspaces
+  if (e.key === 'Backspace' || e.key === 'Delete') {
+    backspaceCounter++;
+  }
+}
+
+function resetTelemetry() {
+  firstKeyTime = null;
+  backspaceCounter = 0;
+  latencyReadingMs = null;
+  latencyExecutionMs = null;
+}
+
+// Aplicar listeners a un textarea
+function bindTelemetry(textarea) {
+  textarea.addEventListener('keydown', onFirstKeydown);
+  // Bloquear pegado
+  textarea.addEventListener('paste', e => e.preventDefault());
+  textarea.addEventListener('focus', startPauseDetection);
+  textarea.addEventListener('blur', () => {
+    clearTimeout(typingPauseTimer);
+    clearInterval(pauseTickInterval);
+    pauseTickInterval = null;
+  });
+  textarea.addEventListener('input', resetPauseDetection);
+}
+
+bindTelemetry(messageInput);
 
 const QR_LABELS = {
   agree: '¿Por qué estás de acuerdo? Explica tu razonamiento.',
@@ -165,6 +192,10 @@ function appendMessage(role, content, time, isError=false, qrTag='') {
   div.innerHTML = `<div class="message-bubble">${content.replace(/\n/g,'<br>').replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')}</div><span class="message-time">${time}${tagHtml}</span>`;
   chatMessages.appendChild(div);
   scrollToBottom();
+  // Marcar tiempo de render del mensaje de IA para la siguiente medición
+  if (role === 'assistant' && !isError) {
+    lastAiRenderTime = performance.now();
+  }
 }
 
 function showTyping() {
@@ -174,6 +205,16 @@ function showTyping() {
   chatMessages.appendChild(div); scrollToBottom();
 }
 function removeTyping() { const el = document.getElementById('typingIndicator'); if(el) el.remove(); }
+
+// ── Heartbeat (cada 60s) ───────────────────────────────────────────────────────
+function sendHeartbeat() {
+  fetch(HEARTBEAT_URL, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json','X-CSRFToken':CSRF_TOKEN},
+    body: JSON.stringify({}),
+  }).catch(() => {});
+}
+setInterval(sendHeartbeat, 60000);
 
 // ── Quick replies ──────────────────────────────────────────────────────────────
 function openQuickReply(btn) {
@@ -192,7 +233,7 @@ async function sendQuickReply() {
   if (!reason) { document.getElementById('qrReason').focus(); return; }
   const displayText = `${QR_DISPLAY[activeQuickOption]} — ${reason}`;
   closeQuickReply();
-  await postMessage(displayText, activeQuickOption, reason);
+  await postMessage(displayText, activeQuickOption, reason, true);
 }
 
 // ── Envío normal ───────────────────────────────────────────────────────────────
@@ -200,21 +241,32 @@ async function sendMessage() {
   const text = messageInput.value.trim();
   if (!text) return;
   messageInput.value = '';
-  await postMessage(text, '', '');
+  await postMessage(text, '', '', false);
 }
 
-async function postMessage(text, qrOption, qrReason) {
+async function postMessage(text, qrOption, qrReason, isQr) {
   appendMessage('user', text, formatTime(new Date()), false, qrOption ? 'respuesta rápida' : '');
   if(sendBtn) sendBtn.disabled = true;
 
-  // Calcular tiempo de respuesta desde el último mensaje de la IA
+  // Calcular latency_execution_ms
+  const now = performance.now();
+  if (firstKeyTime !== null) {
+    latencyExecutionMs = Math.round(now - firstKeyTime);
+  }
+
+  // Calcular tiempo de respuesta total desde el último mensaje de la IA (legacy)
   let responseTimeSeconds = null;
   if (lastAiTimestamp) {
     responseTimeSeconds = Math.round((Date.now() - lastAiTimestamp.getTime()) / 1000);
   }
 
-  // Obtener y resetear pausas acumuladas
   const totalPauseSeconds = pauseAccumulator;
+  const finalLatencyReading = latencyReadingMs;
+  const finalLatencyExecution = latencyExecutionMs;
+  const finalBackspaces = backspaceCounter;
+
+  // Resetear telemetría para el siguiente ciclo
+  resetTelemetry();
   pauseAccumulator = 0;
   clearTimeout(typingPauseTimer);
   clearInterval(pauseTickInterval);
@@ -231,19 +283,21 @@ async function postMessage(text, qrOption, qrReason) {
         quick_reply_reason: qrReason,
         response_time_seconds: responseTimeSeconds,
         total_pause_seconds: totalPauseSeconds,
+        latency_reading_ms: finalLatencyReading,
+        latency_execution_ms: finalLatencyExecution,
+        backspace_count: finalBackspaces,
       }),
     });
     const data = await res.json();
     removeTyping();
-    // Si la entrada fue rechazada por incoherente, mostramos la sugerencia y NO cerramos la sesión.
     if (data.is_invalid_input) {
       appendMessage('assistant', data.response, data.timestamp, true);
       return;
     }
     if (data.response) {
       appendMessage('assistant', data.response, data.timestamp, data.is_error || false);
-      // Actualizar timestamp del último mensaje de IA
       lastAiTimestamp = new Date();
+      lastAiRenderTime = performance.now();
     }
     if (data.session_status && data.session_status !== 'en_progreso') {
       document.querySelector('.quick-replies')?.remove();
@@ -257,14 +311,16 @@ async function postMessage(text, qrOption, qrReason) {
 
 sendBtn?.addEventListener('click', sendMessage);
 messageInput?.addEventListener('keydown', e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage();} });
-document.getElementById('qrReason')?.addEventListener('keydown', e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendQuickReply();} });
-document.getElementById('qrReason')?.addEventListener('input', resetPauseDetection);
-document.getElementById('qrReason')?.addEventListener('focus', startPauseDetection);
-document.getElementById('qrReason')?.addEventListener('blur', () => {
-  clearTimeout(typingPauseTimer);
-  clearInterval(pauseTickInterval);
-  pauseTickInterval = null;
-});
+
+// Bindeo de telemetría al textarea del modal QR
+const qrReasonEl = document.getElementById('qrReason');
+if (qrReasonEl) {
+  qrReasonEl.addEventListener('keydown', e => {
+    onFirstKeydown(e);
+    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendQuickReply();}
+  });
+  bindTelemetry(qrReasonEl);
+}
 scrollToBottom();
 </script>
 {% endblock %}

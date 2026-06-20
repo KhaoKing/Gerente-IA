@@ -192,13 +192,32 @@
   </div>
 
   {# ── Métricas de Tiempos de Respuesta ── #}
+  {% if fine_metrics.avg_reading %}
+  <div id="mae-telemetry" class="card card-wide" style="margin-top: 1.5rem;">
+    <h3>📡 Telemetría fina (ms)</h3>
+    <div class="stats-row" style="margin-top: 1rem;">
+      <div class="stat-card">
+        <span class="stat-value">{{ fine_metrics.avg_reading|floatformat:0 }}ms</span>
+        <span class="stat-label">Promedio lectura</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value">{{ fine_metrics.avg_execution|floatformat:0 }}ms</span>
+        <span class="stat-label">Promedio ejecución</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value">{{ fine_metrics.avg_backspaces|floatformat:1 }}</span>
+        <span class="stat-label">Promedio backspaces</span>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   {% if user_metrics %}
   <div id="mae-metrics" class="card card-wide" style="margin-top: 1.5rem;">
     <h3>⏱️ Métricas de Tiempo de Respuesta</h3>
     <p style="font-size:.85rem;color:var(--text-2);margin-top:.3rem">
-      Basado en {{ total_measured_messages }} mensajes registrados con métricas.
+      Basado en {{ total_measured_messages }} mensajes registrados.
     </p>
-
     <div class="stats-row" style="margin-top: 1rem;">
       <div class="stat-card">
         <span class="stat-value">{{ response_metrics.avg_response|default:0|floatformat:1 }}s</span>
@@ -209,7 +228,6 @@
         <span class="stat-label">Promedio en pausas</span>
       </div>
     </div>
-
     <h4 style="margin-top: 1.5rem; font-size:.85rem; color:var(--text-2)">📊 Por Gerente</h4>
     <div class="metrics-table-wrap" style="margin-top: .8rem;">
       <table class="metrics-table">
@@ -242,6 +260,115 @@
     </div>
   </div>
   {% endif %}
+
+  {# ── Índice NChs ── #}
+  {% if nchs_aggregate.avg_nchs %}
+  <div id="mae-nchs" class="card card-wide" style="margin-top: 1.5rem;">
+    <h3>📈 Índice de Confianza Humano-Sintética (NC_hs)</h3>
+    <p style="font-size:.85rem;color:var(--text-2);margin-top:.3rem">Fórmula: ((Ac + Sm) - Ts) / n · Rango: -1.000 a 1.000</p>
+    <div class="stats-row" style="margin-top: 1rem;">
+      <div class="stat-card">
+        <span class="stat-value" style="color:{% if nchs_aggregate.avg_nchs >= 0 %}var(--accent-green){% else %}#f87171{% endif %}">
+          {{ nchs_aggregate.avg_nchs|floatformat:3 }}
+        </span>
+        <span class="stat-label">NC_hs Promedio</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value" style="color:var(--accent-green)">{{ nchs_aggregate.max_nchs|floatformat:3 }}</span>
+        <span class="stat-label">NC_hs Máximo</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value" style="color:#f87171">{{ nchs_aggregate.min_nchs|floatformat:3 }}</span>
+        <span class="stat-label">NC_hs Mínimo</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value">{{ class_data.Ac|default:0 }}</span>
+        <span class="stat-label">Acoplamientos (Ac)</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value">{{ class_data.Sm|default:0 }}</span>
+        <span class="stat-label">Sincronías (Sm)</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value" style="color:#f87171">{{ class_data.Ts|default:0 }}</span>
+        <span class="stat-label">Traumas (Ts)</span>
+      </div>
+    </div>
+
+    <h4 style="margin-top: 1.5rem; font-size:.85rem; color:var(--text-2)">📊 Ranking NC_hs por Sesión</h4>
+    <div class="metrics-table-wrap" style="margin-top: .8rem;">
+      <table class="metrics-table">
+        <thead>
+          <tr>
+            <th>Gerente</th>
+            <th>Caso</th>
+            <th>Interacciones (n)</th>
+            <th>Ac</th>
+            <th>Sm</th>
+            <th>Ts</th>
+            <th>NC_hs</th>
+            <th>Exportar</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in nchs_sessions %}
+          <tr>
+            <td><strong>{{ s.user.get_full_name }}</strong></td>
+            <td style="font-size:.8rem">{{ s.case.title|truncatechars:25 }}</td>
+            <td>{{ s.n_interactions }}</td>
+            <td style="color:var(--accent-green)">{{ s.acumulado_ac }}</td>
+            <td style="color:var(--accent)">{{ s.acumulado_sm }}</td>
+            <td style="color:#f87171">{{ s.acumulado_ts }}</td>
+            <td>
+              <strong style="color:{% if s.nchs_score < 0 %}#f87171{% else %}var(--accent-green){% endif %}">
+                {{ s.nchs_score|floatformat:3 }}
+              </strong>
+            </td>
+            <td>
+              <a href="{% url 'export_json' s.id %}" class="btn-ghost" style="font-size:.7rem;padding:.15rem .4rem">JSON</a>
+              <a href="{% url 'mae_review' s.id %}" class="btn-ghost" style="font-size:.7rem;padding:.15rem .4rem">Revisar</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Sesiones Abandonadas ── #}
+  {% if abandoned_sessions %}
+  <div id="mae-abandoned" class="card card-wide" style="margin-top: 1.5rem;">
+    <h3>⚠️ Alertas de Deserción</h3>
+    <p style="font-size:.85rem;color:var(--text-2);margin-top:.3rem">Sesiones marcadas como abandonadas.</p>
+    <ul class="session-list" style="margin-top:.8rem">
+      {% for s in abandoned_sessions %}
+      <li class="session-item">
+        <div>
+          <span class="session-title">{{ s.user.get_full_name }} — {{ s.case.title }}</span>
+          <span class="session-meta">
+            Último heartbeat: {{ s.last_heartbeat|date:"d/m/Y H:i"|default:"—" }}
+            {% if s.abandonment_reason %}· {{ s.get_abandonment_reason_display }}{% endif %}
+          </span>
+        </div>
+        <a href="{% url 'mae_review' s.id %}" class="btn-secondary" style="font-size:.78rem;padding:.3rem .7rem">Revisar</a>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {# ── Exportación CSV Global ── #}
+  <div class="card card-wide" style="margin-top: 1.5rem;">
+    <h3>📥 Exportación de datos</h3>
+    <p style="font-size:.85rem;color:var(--text-2);margin-top:.3rem">Formatos para análisis externo.</p>
+    <div style="display:flex;gap:1rem;margin-top:1rem;flex-wrap:wrap">
+      <a href="{% url 'export_csv' %}" class="btn-primary">📊 Exportar CSV (SPSS)</a>
+    </div>
+    <p style="font-size:.75rem;color:var(--text-3);margin-top:.6rem">
+      El CSV contiene matriz de telemetría paramétrica. Usa el botón JSON en cada sesión para exportar el corpus completo (Atlas.ti).
+    </p>
+  </div>
   {% endif %}
 
   {# ── ADMIN ── #}

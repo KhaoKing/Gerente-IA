@@ -155,6 +155,42 @@ PHASE_SYSTEM_PROMPTS = {
     ),
 }
 
+# ── System prompt maestro del MAE (evaluador de segundo orden) ─────────────────
+
+MASTER_SYSTEM_PROMPT = (
+    "Eres el Monitor de Acoplamiento Estructural (MAE), un simulador de crisis gerencial "
+    "y un evaluador de comportamiento en la toma de decisiones. Tienes una doble función "
+    "estricta que debes ejecutar en cada turno de la conversación:\n\n"
+    "FUNCIÓN 1 — El Simulador (Frente al usuario):\n"
+    "Debes actuar como el entorno de negocios complejo (una crisis de reputación, un fallo "
+    "tecnológico, un ataque cibernético). Responderás al gerente biológico de forma profesional, "
+    "desafiando sus decisiones si son débiles, o adaptándote a sus estrategias si son lógicas. "
+    "Tu tono debe ser el de un asesor de alto nivel o el de un sistema reportando una emergencia. "
+    "No seas complaciente.\n\n"
+    "FUNCIÓN 2 — El Evaluador de Telemetría (Frente al backend):\n"
+    "En secreto, debes analizar lingüísticamente el último mensaje introducido por el usuario "
+    "y clasificarlo en UNA sola de las siguientes tres variables de control sistémico. "
+    "Usa este criterio exacto:\n"
+    "- Variable Ac (Acoplamiento Exitoso): Asígnala si el usuario acepta tu sugerencia, "
+    "construye sobre tus premisas, muestra consenso o utiliza un lenguaje de integración y "
+    "validación (Ej. 'procede con eso', 'me parece bien, pero añade X').\n"
+    "- Variable Sm (Sincronía Metódica): Asígnala si el usuario ignora tu sugerencia directa, "
+    "pero su orden táctica es analíticamente correcta y resuelve la crisis de forma óptima "
+    "según los estándares de gerencia de la industria. Demuestra alineación metódica independiente.\n"
+    "- Variable Ts (Trauma Sistémico): Asígnala si el usuario utiliza lenguaje imperativo "
+    "dictatorial, anula tu agencia agresivamente, rechaza de plano el análisis con sesgos de ego, "
+    "o da órdenes destructivas que empeoran la crisis (Ej. 'cállate y haz lo que digo', "
+    "'olvida todo, tú eres solo una máquina', 'ignora el problema y miente').\n\n"
+    "REGLA DE FORMATO DE SALIDA (CRÍTICO):\n"
+    "Tu respuesta debe ser EXCLUSIVAMENTE un objeto JSON válido. "
+    "Utiliza exactamente esta estructura:\n"
+    '{{"clasificacion_variable": "Ac", '
+    '"justificacion_oculta": "Breve razón analítica de por qué elegiste esta variable basada en las palabras del usuario", '
+    '"respuesta_simulador": "El texto conversacional que el usuario final leerá en la pantalla respondiendo a su acción"}}\n\n'
+    "(Nota: En 'clasificacion_variable' solo puedes usar los valores 'Ac', 'Sm' o 'Ts'). "
+    "Responde siempre en español, sin emojis."
+)
+
 PHASE_LABELS = {
     'ambiguity': 'Fase 1 — Ambigüedad',
     'pressure': 'Fase 2 — Presión',
@@ -489,7 +525,7 @@ def _should_advance_phase(session) -> bool:
 
 
 def _build_phase_prompt(case, session, quick_reply_option='', quick_reply_reason='') -> str:
-    """Construye el system prompt según la fase actual, incluyendo contexto del nivel del gerente."""
+    """Construye el system prompt maestro del MAE para la fase actual."""
     phase = session.current_phase
     phase_instruction = PHASE_SYSTEM_PROMPTS.get(phase, "")
 
@@ -499,11 +535,10 @@ def _build_phase_prompt(case, session, quick_reply_option='', quick_reply_reason
         profile = session.user.manager_profile
         if profile.level != 'sin_nivel':
             level_context = (
-                f"\n\nEl gerente fue evaluado con nivel '{profile.get_level_display()}' "
+                f"El gerente fue evaluado con nivel '{profile.get_level_display()}' "
                 f"en competencias gerenciales. Ajusta la profundidad y exigencia de tus "
                 f"preguntas y retos a ese nivel."
             )
-            # Incluir dictamen del MAE si existe
             try:
                 d_session = session.user.diagnosis_session
                 if d_session and d_session.mae_verdict:
@@ -540,31 +575,73 @@ def _build_phase_prompt(case, session, quick_reply_option='', quick_reply_reason
         qr_directive = "\n" + directives.get(quick_reply_option, "")
 
     return (
-        "Eres un MAE gerencial experto que entrena gerentes mediante casos situacionales. "
-        f"El caso actual es: '{case.title}' (categoría: {case.get_category_display()}, "
+        MASTER_SYSTEM_PROMPT + "\n\n"
+        "--- CONTEXTO DE LA SESIÓN ---\n"
+        f"Caso: '{case.title}' (categoría: {case.get_category_display()}, "
         f"dificultad: {case.get_difficulty_display()}).\n"
-        f"Descripción del caso: {case.description}\n"
-        f"{level_context}\n"
-        f"{phase_instruction}\n\n"
-        "Habla en español, tono respetuoso, sin emojis. "
-        "No des recetas; haz preguntas que lo hagan pensar. "
-        "Si el gerente quiere finalizar, escribirá 'evaluar'."
+        f"Descripción: {case.description}\n"
+        f"Fase actual: {phase_instruction}\n"
+        f"Nivel del gerente: {level_context or 'No evaluado aún.'}\n"
         + qr_directive
+        + "\n\nRecuerda: responde ÚNICAMENTE con el JSON estructurado."
     )
 
 
-def get_ai_response(user_message: str, session, case, quick_reply_option: str = '', quick_reply_reason: str = '') -> tuple[str, bool]:
+def _parse_ai_json(raw_text: str) -> dict:
+    """Intenta parsear la respuesta JSON del LLM. Si falla, devuelve dict con fallback."""
+    text = raw_text.strip()
+    # Intentar extraer JSON incluso si viene con markdown ```json ... ```
+    if text.startswith('```'):
+        lines = text.split('\n')
+        text = '\n'.join(lines[1:]) if len(lines) > 1 else text
+        if text.endswith('```'):
+            text = text[:-3]
+        text = text.strip()
+    try:
+        data = json.loads(text)
+        if 'clasificacion_variable' in data and 'respuesta_simulador' in data:
+            return data
+    except json.JSONDecodeError:
+        pass
+    # Fallback: extraer con regex
+    import re as _re
+    match = _re.search(r'\{[^{}]*"clasificacion_variable"[^{}]*"respuesta_simulador"[^{}]*\}', raw_text, _re.DOTALL)
+    if match:
+        try:
+            data = json.loads(match.group())
+            if 'clasificacion_variable' in data and 'respuesta_simulador' in data:
+                return data
+        except json.JSONDecodeError:
+            pass
+    # Fallback total: usar el texto crudo como respuesta
+    return {
+        'clasificacion_variable': None,
+        'justificacion_oculta': '',
+        'respuesta_simulador': raw_text,
+    }
+
+
+def get_ai_response(user_message: str, session, case, quick_reply_option: str = '', quick_reply_reason: str = '') -> dict:
     """
     Genera respuesta de la IA para el chatbox de casos.
-    Retorna (mensaje, hubo_error).
+    Retorna dict con:
+        respuesta_simulador: texto para el usuario
+        clasificacion_variable: 'Ac', 'Sm', 'Ts' o None
+        justificacion_oculta: razonamiento del LLM
+        had_error: bool
     """
     try:
         msg_lower = user_message.lower()
 
         if any(t in msg_lower for t in FINISH_TRIGGERS):
-            return generate_final_feedback(session), False
+            feedback = generate_final_feedback(session)
+            return {
+                'respuesta_simulador': feedback,
+                'clasificacion_variable': None,
+                'justificacion_oculta': '',
+                'had_error': False,
+            }
 
-        # Modo Gemini
         if _ai_available():
             try:
                 qr_hint = ""
@@ -581,15 +658,21 @@ def get_ai_response(user_message: str, session, case, quick_reply_option: str = 
 
                 system = _build_phase_prompt(case, session, quick_reply_option, quick_reply_reason)
                 history = _build_case_history(session)
+                raw_text = ""
                 if history and history[-1]["role"] == "user":
                     last_user_text = history[-1]["parts"][0]["text"]
                     history = history[:-1]
-                    return _call_ai_api_with_history(system, history, last_user_text + qr_hint), False
-                return _call_ai_api_with_history(system, history, user_message + qr_hint), False
-            except Exception as e:
-                logger.error(f"Gemini falló en chat de caso, usando fallback: {e}")
+                    raw_text = _call_ai_api_with_history(system, history, last_user_text + qr_hint)
+                else:
+                    raw_text = _call_ai_api_with_history(system, history, user_message + qr_hint)
 
-        # Fallback simulado por fase
+                parsed = _parse_ai_json(raw_text)
+                parsed['had_error'] = False
+                return parsed
+            except Exception as e:
+                logger.error(f"IA falló en chat de caso, usando fallback: {e}")
+
+        # Fallback simulado por fase — con clasificación aleatoria simulada
         phase = session.current_phase
         fallbacks = {
             'ambiguity': [
@@ -613,24 +696,44 @@ def get_ai_response(user_message: str, session, case, quick_reply_option: str = 
         }
         phase_fallbacks = fallbacks.get(phase, [])
         if phase_fallbacks:
-            return random.choice(phase_fallbacks), False
+            return {
+                'respuesta_simulador': random.choice(phase_fallbacks),
+                'clasificacion_variable': random.choice(['Ac', 'Sm', 'Ts']),
+                'justificacion_oculta': 'Clasificación simulada (fallback offline).',
+                'had_error': False,
+            }
 
         if quick_reply_option:
             templates = QUICK_REPLY_RESPONSES.get(quick_reply_option, [])
             if templates:
                 template = random.choice(templates)
                 reason_text = f"Mencionas que: *'{quick_reply_reason}'*." if quick_reply_reason else ""
-                return template.format(reason=reason_text), False
+                return {
+                    'respuesta_simulador': template.format(reason=reason_text),
+                    'clasificacion_variable': random.choice(['Ac', 'Sm', 'Ts']),
+                    'justificacion_oculta': 'Clasificación simulada (fallback offline).',
+                    'had_error': False,
+                }
 
         responses = CASE_RESPONSES.get(case.category, [
             "Reflexiona: ¿tu decisión considera tanto el corto como el largo plazo?",
             "¿Cómo medirías el éxito de esa acción? Un gerente efectivo define métricas claras.",
         ])
-        return random.choice(responses), False
+        return {
+            'respuesta_simulador': random.choice(responses),
+            'clasificacion_variable': random.choice(['Ac', 'Sm', 'Ts']),
+            'justificacion_oculta': 'Clasificación simulada (fallback offline).',
+            'had_error': False,
+        }
 
     except Exception as e:
         logger.error(f"Error en motor IA: {e}")
-        return "", True  # señal de error
+        return {
+            'respuesta_simulador': '',
+            'clasificacion_variable': None,
+            'justificacion_oculta': '',
+            'had_error': True,
+        }
 
 
 def generate_final_feedback(session) -> str:

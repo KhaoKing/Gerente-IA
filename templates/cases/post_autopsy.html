@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% block title %}Post-autopsia — {{ case.title }}{% endblock %}
+{% block content %}
+<div class="mae-review-page">
+  <div class="mae-review-header">
+    <h1>🧠 Autopsia cognitiva</h1>
+    <p style="color:var(--text-2);font-size:.875rem;margin-top:.3rem">
+      Has completado el caso <strong>{{ case.title }}</strong>. Antes de cerrar, reflexiona sobre tu experiencia con la IA.
+    </p>
+  </div>
+
+  <div class="mae-review-grid">
+    <div class="card card-wide">
+      <form method="POST">
+        {% csrf_token %}
+
+        <div class="form-group" style="margin-bottom:1.5rem">
+          <label>¿En qué momento de la simulación sentiste que la IA amenazaba tu autoridad o cuestionaba seriamente tu criterio?</label>
+          <textarea name="shock_reflection" rows="3" class="eval-textarea"
+            placeholder="Describe el momento exacto y cómo te sentiste..." required></textarea>
+        </div>
+
+        <div class="form-group" style="margin-bottom:1.5rem">
+          <label>¿Por qué decidiste ceder ante la IA en ciertos momentos (o imponerte ante ella en otros)? ¿Cuál fue tu estrategia de negociación con la máquina?</label>
+          <textarea name="negotiation_strategy" rows="3" class="eval-textarea"
+            placeholder="Explica tu razonamiento al decidir cuándo confiar y cuándo imponer tu criterio..." required></textarea>
+        </div>
+
+        <hr class="eval-divider">
+
+        <h3 style="font-size:.95rem;margin-bottom:1rem">📜 Leyes de Gobernanza Híbrida (Manifiesto Delphi)</h3>
+        <p style="font-size:.8rem;color:var(--text-2);margin-bottom:1rem">
+          Basado en tu experiencia con la IA, define las reglas que gobernarán tu relación con sistemas inteligentes en adelante.
+        </p>
+
+        <div class="form-group" style="margin-bottom:1.5rem">
+          <label><strong>Ley 1 — Soberanía:</strong> ¿Quién tiene la última palabra cuando tú y la IA discrepan en una decisión crítica?</label>
+          <textarea name="law_sovereignty" rows="2" class="eval-textarea"
+            placeholder="Define el protocolo de última palabra ante discrepancias..." required></textarea>
+        </div>
+
+        <div class="form-group" style="margin-bottom:1.5rem">
+          <label><strong>Ley 4 — Identidad:</strong> ¿Qué elemento de tu criterio humano es innegociable y jamás delegarías a una IA, sin importar cuán eficiente sea su sugerencia?</label>
+          <textarea name="law_identity" rows="2" class="eval-textarea"
+            placeholder="El elemento inalterable de tu marca biológica como líder..." required></textarea>
+        </div>
+
+        <button type="submit" class="btn-primary">Registrar reflexión y finalizar →</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
