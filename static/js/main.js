@@ -14,7 +14,7 @@ document.querySelectorAll('.stat-card[href]').forEach(card => {
     if (!target) return;
     target.scrollIntoView({ behavior: 'smooth', block: 'start' });
     target.style.transition = 'box-shadow .5s, border-color .5s';
-    target.style.boxShadow = '0 0 0 3px rgba(79,142,247,.3)';
+    target.style.boxShadow = '0 0 0 3px rgba(79,142,247,.15)';
     target.style.borderColor = 'var(--accent)';
     setTimeout(() => {
       target.style.boxShadow = '';

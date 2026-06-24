@@ -17,6 +17,9 @@ urlpatterns = [
     # MAE
     path('mae/revision/<int:session_id>/', views.mae_review, name='mae_review'),
     path('mae/diagnostico/<int:session_id>/', views.mae_diagnosis_review, name='mae_diagnosis_review'),
+    path('mae/expediente/<int:session_id>/', views.case_detail, name='case_detail'),
+    path('mae/escalar/<int:session_id>/', views.mae_escalate, name='mae_escalate'),
+    path('mae/diagnostico/<int:session_id>/detalle/', views.diagnosis_detail, name='diagnosis_detail'),
     # Heartbeat y exportación
     path('caso/<int:session_id>/heartbeat/', views.heartbeat, name='heartbeat'),
     path('mae/exportar/<int:session_id>/json/', views.export_session_json, name='export_json'),

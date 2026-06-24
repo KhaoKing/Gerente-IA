@@ -380,7 +380,7 @@ def get_diagnosis_response(question_number: int, user_answer: str, is_last: bool
                     "Eres un MAE experto en competencias gerenciales. "
                     "Acabas de terminar un diagnóstico de 5 preguntas situacionales con un gerente. "
                     "Responde brevemente (máx 4 oraciones) agradeciendo, indicando que has analizado sus respuestas "
-                    "y que su MAE humano revisará el diagnóstico para confirmar el nivel asignado. "
+                    "y que su Docente Tutor humano revisará el diagnóstico para confirmar el nivel asignado. "
                     "Responde siempre en español, sin emojis."
                 )
                 user = f"Última respuesta del gerente: {user_answer}\nGenera el cierre del diagnóstico."
@@ -390,7 +390,7 @@ def get_diagnosis_response(question_number: int, user_answer: str, is_last: bool
         return (
             "Gracias por completar el diagnóstico. He analizado tus respuestas.\n\n"
             "En breve recibirás tu nivel asignado y tu ruta de capacitación personalizada. "
-            "Tu MAE revisará este diagnóstico antes de confirmar el resultado."
+            "Tu Docente Tutor revisará este diagnóstico antes de confirmar el resultado."
         )
 
     # Generar siguiente pregunta — dinámica con IA, o fallback a pregunta fija
@@ -543,7 +543,7 @@ def _build_phase_prompt(case, session, quick_reply_option='', quick_reply_reason
                 d_session = session.user.diagnosis_session
                 if d_session and d_session.mae_verdict:
                     level_context += (
-                        f" Observaciones del MAE sobre el gerente: {d_session.mae_verdict}"
+                        f" Observaciones del Docente Tutor sobre el gerente: {d_session.mae_verdict}"
                     )
             except Exception:
                 pass
@@ -756,14 +756,14 @@ def generate_final_feedback(session) -> str:
         try:
             history = _build_case_history(session, limit=30)
             transcript = "\n".join(
-                f"{('Gerente' if h['role']=='user' else 'MAE IA')}: {h['parts'][0]['text']}"
+                f"{('Gerente' if h['role']=='user' else 'MAE')}: {h['parts'][0]['text']}"
                 for h in history
             )
             system = (
                 "Eres un MAE gerencial. A continuación tienes la transcripción de una sesión de caso. "
                 "Genera una retroalimentación final breve (4-6 oraciones, en español, sin emojis) que: "
                 "(1) reconozca lo que el gerente analizó bien, (2) señale uno o dos puntos a profundizar, "
-                "(3) recuerde que su MAE humano revisará la sesión y emitirá el dictamen final."
+                "(3) recuerde que su Docente Tutor humano revisará la sesión y emitirá el dictamen final."
                 + level_note
             )
             return _call_ai_api(system, f"Transcripción de la sesión:\n{transcript}")
@@ -774,12 +774,12 @@ def generate_final_feedback(session) -> str:
         return (
             "Has dado respuestas iniciales, pero un análisis gerencial robusto "
             "requiere explorar más ángulos. Te recomiendo profundizar más en próximos casos.\n\n"
-            "Tu sesión quedó guardada y será revisada por tu MAE."
+            "Tu sesión quedó guardada y será revisada por tu Docente Tutor."
         )
     return (
         f"Has completado este caso con {count} intervenciones. "
         "Demostraste capacidad analítica y disposición reflexiva. "
-        "Tu MAE revisará esta sesión y emitirá el dictamen final antes de registrar tu resultado."
+        "Tu Docente Tutor revisará esta sesión y emitirá el dictamen final antes de registrar tu resultado."
     )
 
 

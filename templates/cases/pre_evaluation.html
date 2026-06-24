@@ -33,7 +33,7 @@
         </div>
 
         <div class="form-group" style="margin-bottom:1.5rem">
-          <label>En una escala del 1 al 5, ¿qué tanto confías en el criterio de una IA para apoyar tus decisiones gerenciales?</label>
+          <label>En una escala del 1 al 5, ¿qué tanto confías en el criterio del MAE para apoyar tus decisiones gerenciales?</label>
           <div class="freq-options">
             {% for i in "12345" %}
             <input type="radio" id="trust_{{ i }}" name="ia_trust_baseline" value="{{ i }}" {% if i == '3' %}checked{% endif %}>

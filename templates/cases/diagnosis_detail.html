@@ -1,0 +1,130 @@
+{% extends 'base.html' %}
+{% block title %}Expediente de Diagnóstico — Gerente IA{% endblock %}
+{% block content %}
+<div class="mae-review-page">
+  <div class="mae-review-header">
+    <a href="{% url 'dashboard' %}" class="btn-ghost">← Volver al Dashboard</a>
+    <h1>📋 Expediente de Diagnóstico</h1>
+    <p style="color:var(--text-2);font-size:.875rem">
+      Gerente: <strong>{{ session.user.get_full_name }}</strong> ·
+      Estado: <span class="status-badge" style="background:{% if session.status == 'completado' %}rgba(99,102,241,.1);color:var(--accent-2){% elif session.status == 'aprobado' or session.status == 'nivel_asignado' %}rgba(5,150,105,.1);color:var(--accent-green){% elif session.status == 'rechazado' %}rgba(239,68,68,.1);color:#ef4444{% else %}rgba(148,163,184,.1);color:var(--text-2){% endif %}">{{ session.get_status_display }}</span>
+    </p>
+  </div>
+
+  <div class="mae-review-grid">
+    <div class="card card-wide">
+      <div style="display:flex;gap:1.5rem;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <h4 style="font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);margin-bottom:.5rem">Datos de la Sesión</h4>
+          <p><strong>Iniciado:</strong> {{ session.started_at|date:"d/m/Y H:i" }}</p>
+          <p><strong>Completado:</strong> {{ session.completed_at|date:"d/m/Y H:i"|default:"—" }}</p>
+          <p><strong>Pregunta actual:</strong> {{ session.current_question }} de 5</p>
+          {% if session.ia_level_suggestion %}
+          <p><strong>Nivel sugerido por IA:</strong> {{ session.ia_level_suggestion }}</p>
+          {% endif %}
+        </div>
+        <div style="flex:1;min-width:200px">
+          <h4 style="font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);margin-bottom:.5rem">Dictamen del Docente Tutor</h4>
+          {% if session.mae %}
+          <p><strong>Revisado por:</strong> {{ session.mae.get_full_name }}</p>
+          <p><strong>Fecha:</strong> {{ session.mae_reviewed_at|date:"d/m/Y H:i"|default:"—" }}</p>
+          <p><strong>Resultado:</strong>
+            {% if session.mae_approved is True %}<span style="color:var(--accent-green);font-weight:600">Aprobado</span>
+            {% elif session.mae_approved is False %}<span style="color:#ef4444;font-weight:600">Rechazado</span>
+            {% else %}<span style="color:var(--text-3)">Pendiente</span>{% endif %}
+          </p>
+          {% if session.mae_verdict %}<p style="font-size:.85rem;color:var(--text-2);margin-top:.3rem"><strong>Veredicto:</strong> {{ session.mae_verdict }}</p>{% endif %}
+          {% else %}
+          <p style="color:var(--text-3)">Pendiente de revisión</p>
+          {% endif %}
+        </div>
+        <div style="flex:1;min-width:200px">
+          <h4 style="font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);margin-bottom:.5rem">Perfil del Gerente</h4>
+          {% if profile %}
+          <p><strong>Cargo:</strong> {{ profile.position }}</p>
+          <p><strong>Empresa:</strong> {{ profile.company }}</p>
+          <p><strong>Industria:</strong> {{ profile.get_industry_display }}</p>
+          <p><strong>Experiencia:</strong> {{ profile.get_experience_years_display }}</p>
+          <p><strong>Nivel asignado:</strong> {{ profile.get_level_display }}</p>
+          {% else %}
+          <p style="color:var(--text-3)">Perfil no completado</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card card-wide">
+      <h3>📋 Preguntas y Respuestas</h3>
+      <div class="mae-transcript">
+        {% for msg in messages %}
+        <div class="transcript-msg transcript-{{ msg.role }}">
+          <div class="transcript-meta">
+            <strong>{% if msg.role == 'assistant' %}MAE (Pregunta {{ msg.question_number|default:"?" }}){% else %}{{ session.user.get_full_name }}{% endif %}</strong>
+            <span>{{ msg.created_at|date:"d/m/Y H:i" }}</span>
+          </div>
+          <p>{{ msg.content|linebreaksbr }}</p>
+        </div>
+        {% empty %}
+        <p style="color:var(--text-2);text-align:center;padding:2rem">No hay mensajes en esta sesión.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    {% if session.ia_summary %}
+    <div class="card card-wide">
+      <h3>🤖 Resumen de la IA</h3>
+      <p style="font-size:.85rem;color:var(--text-2);margin-top:.5rem">{{ session.ia_summary|linebreaksbr }}</p>
+    </div>
+    {% endif %}
+
+    <div class="card card-wide">
+      <h3>🕐 Bitácora de Auditoría</h3>
+      <div class="metrics-table-wrap" style="margin-top:.8rem">
+        <table class="metrics-table">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Evento</th>
+              <th>Detalle</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>{{ session.started_at|date:"d/m/Y H:i" }}</td>
+              <td><span style="color:var(--accent)">Sesión creada</span></td>
+              <td>Diagnóstico iniciado por {{ session.user.get_full_name }}</td>
+            </tr>
+            {% if session.completed_at %}
+            <tr>
+              <td>{{ session.completed_at|date:"d/m/Y H:i" }}</td>
+              <td><span style="color:var(--accent-2)">Diagnóstico completado</span></td>
+              <td>5 preguntas respondidas · Nivel IA: {{ session.ia_level_suggestion|default:"—" }}</td>
+            </tr>
+            {% endif %}
+            {% if session.mae_reviewed_at %}
+            <tr>
+              <td>{{ session.mae_reviewed_at|date:"d/m/Y H:i" }}</td>
+              <td>
+                {% if session.mae_approved %}
+                <span style="color:var(--accent-green);font-weight:600">Aprobado por Docente Tutor</span>
+                {% else %}
+                <span style="color:#ef4444;font-weight:600">Rechazado por Docente Tutor</span>
+                {% endif %}
+              </td>
+              <td>{{ session.mae.get_full_name }} — {{ session.mae_verdict|truncatechars:120 }}</td>
+            </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card card-wide">
+      <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:center">
+        <a href="{% url 'mae_diagnosis_review' session.id %}" class="btn-primary">Revisar y dictaminar →</a>
+        <a href="{% url 'dashboard' %}" class="btn-ghost">Volver al Dashboard</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

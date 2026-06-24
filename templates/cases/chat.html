@@ -28,9 +28,9 @@
     <div class="chat-header">
       <div class="chat-avatar">🤖</div>
       <div>
-        <p class="chat-mae-name">MAE IA</p>
+        <p class="chat-mae-name">MAE</p>
         <p class="chat-status {% if session.status == 'en_progreso' %}status-online{% endif %}">
-          {% if session.status == 'en_progreso' %}En línea{% else %}Sesión finalizada — pendiente revisión del MAE{% endif %}
+          {% if session.status == 'en_progreso' %}En línea{% else %}Sesión finalizada — pendiente revisión del Docente Tutor{% endif %}
         </p>
       </div>
     </div>
@@ -85,7 +85,7 @@
 
     {% else %}
     <div class="chat-closed">
-      <p>Sesión finalizada. Tu MAE revisará esta sesión y emitirá el dictamen. Tu MAE también liberará el siguiente caso cuando corresponda.</p>
+      <p>Sesión finalizada. Tu Docente Tutor revisará esta sesión y emitirá el dictamen. Tu Docente Tutor también liberará el siguiente caso cuando corresponda.</p>
     </div>
     {% endif %}
   </div>
@@ -301,7 +301,7 @@ async function postMessage(text, qrOption, qrReason, isQr) {
     }
     if (data.session_status && data.session_status !== 'en_progreso') {
       document.querySelector('.quick-replies')?.remove();
-      document.querySelector('.chat-input-area').innerHTML = `<div class="chat-closed"><p>Sesión finalizada. Tu MAE revisará esta sesión.</p></div>`;
+      document.querySelector('.chat-input-area').innerHTML = `<div class="chat-closed"><p>Sesión finalizada. Tu Docente Tutor revisará esta sesión.</p></div>`;
     }
   } catch(e) {
     removeTyping();

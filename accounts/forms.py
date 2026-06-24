@@ -52,7 +52,7 @@ class ManagerProfileForm(forms.ModelForm):
 class CreateUserForm(forms.Form):
     ROLE_CHOICES = [
         ('admin', 'Administrador'),
-        ('mae', 'MAE'),
+        ('mae', 'Docente Tutor'),
     ]
 
     username = forms.CharField(label='Usuario', max_length=150)

@@ -11,13 +11,18 @@ class ManagementCase(models.Model):
         ('delegacion', 'Delegación'), ('motivacion', 'Motivación de Equipos'),
         ('decision', 'Toma de Decisiones'), ('cambio', 'Gestión del Cambio'),
     ]
+    PRIORITY_CHOICES = [
+        ('alta', 'Alta'), ('media', 'Media'), ('baja', 'Baja'),
+    ]
 
     title = models.CharField('Título', max_length=200)
     description = models.TextField('Descripción del caso')
     category = models.CharField('Categoría', max_length=30, choices=CATEGORY_CHOICES)
     difficulty = models.CharField('Dificultad', max_length=20, choices=DIFFICULTY_CHOICES, default='basico')
+    priority = models.CharField('Prioridad', max_length=10, choices=PRIORITY_CHOICES, default='media')
     is_active = models.BooleanField(default=True)
     key_competencies = models.TextField('Competencias clave', blank=True)
+    sla_hours = models.IntegerField('SLA (horas límite)', default=48, help_text='Horas máximas para revisión por el Docente Tutor')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -33,9 +38,9 @@ class ManagementCase(models.Model):
 class DiagnosisSession(models.Model):
     STATUS_CHOICES = [
         ('en_progreso', 'En Progreso'),
-        ('completado', 'Esperando validación del MAE'),
-        ('aprobado', 'Aprobado por MAE'),
-        ('rechazado', 'Rechazado por MAE'),
+        ('completado', 'Esperando validación del Docente Tutor'),
+        ('aprobado', 'Aprobado por Docente Tutor'),
+        ('rechazado', 'Rechazado por Docente Tutor'),
         ('nivel_asignado', 'Nivel Asignado'),
     ]
 
@@ -44,13 +49,13 @@ class DiagnosisSession(models.Model):
     current_question = models.IntegerField(default=1)   # 1 al 5
     ia_level_suggestion = models.CharField(max_length=20, blank=True)
     ia_summary = models.TextField('Resumen IA del diagnóstico', blank=True)
-    # Validación del MAE sobre las 5 preguntas
+    # Validación del Docente Tutor sobre las 5 preguntas
     mae = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='reviewed_diagnoses', limit_choices_to={'role': 'mae'}
     )
     mae_approved = models.BooleanField(null=True, blank=True)   # True=aprobado, False=rechazado
-    mae_verdict = models.TextField('Dictamen del MAE sobre el diagnóstico', blank=True)
+    mae_verdict = models.TextField('Dictamen del Docente Tutor sobre el diagnóstico', blank=True)
     mae_reviewed_at = models.DateTimeField(null=True, blank=True)
     started_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -83,12 +88,29 @@ class DiagnosisMessage(models.Model):
 
 class CaseSession(models.Model):
     STATUS_CHOICES = [
+        ('nuevo', 'Nuevo'),
         ('en_progreso', 'En Progreso'),
         ('completado', 'Completado'),
-        ('en_revision', 'En Revisión por MAE'),
-        ('evaluado', 'Evaluado'),
+        ('en_validacion', 'En Validación'),
+        ('observado', 'Observado'),
+        ('corregido', 'Corregido'),
+        ('escalado', 'Escalado'),
+        ('cerrado', 'Cerrado'),
         ('abandoned', 'Abandonada'),
     ]
+
+    ALLOWED_TRANSITIONS = {
+        'nuevo':          ['en_progreso'],
+        'en_progreso':    ['completado', 'abandoned'],
+        'completado':     ['en_validacion', 'escalado'],
+        'en_validacion':  ['observado', 'cerrado', 'escalado'],
+        'observado':      ['corregido'],
+        'corregido':      ['en_validacion'],
+        'escalado':       ['en_validacion', 'cerrado'],
+        'cerrado':        [],
+        'abandoned':      [],
+    }
+
     PHASE_CHOICES = [
         ('ambiguity', 'Fase 1: Ambigüedad'),
         ('pressure', 'Fase 2: Presión'),
@@ -104,7 +126,7 @@ class CaseSession(models.Model):
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='case_sessions')
     case = models.ForeignKey(ManagementCase, on_delete=models.CASCADE, related_name='sessions')
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='en_progreso')
+    status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='nuevo')
     current_phase = models.CharField(max_length=20, choices=PHASE_CHOICES, default='ambiguity')
     # Variables acumuladoras del algoritmo NC_hs
     n_interactions = models.IntegerField('Variable n: total de ciclos', default=0)
@@ -112,7 +134,7 @@ class CaseSession(models.Model):
     acumulado_sm = models.IntegerField('Variable Sm: Sincronía Metódica', default=0)
     acumulado_ts = models.IntegerField('Variable Ts: Trauma Sistémico', default=0)
     nchs_score = models.DecimalField('Índice NC_hs', max_digits=4, decimal_places=3, default=0.000)
-    # Dictamen del MAE
+    # Dictamen del Docente Tutor
     mae = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='reviewed_sessions', limit_choices_to={'role': 'mae'}
@@ -121,7 +143,7 @@ class CaseSession(models.Model):
         'TeacherProfile', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='supervised_sessions'
     )
-    mae_verdict = models.TextField('Dictamen del MAE', blank=True)
+    mae_verdict = models.TextField('Dictamen del Docente Tutor', blank=True)
     mae_approved = models.BooleanField(null=True, blank=True)
     mae_reviewed_at = models.DateTimeField(null=True, blank=True)
     ia_feedback = models.TextField('Retroalimentación IA', blank=True)
@@ -129,8 +151,44 @@ class CaseSession(models.Model):
     last_heartbeat = models.DateTimeField(null=True, blank=True)
     abandonment_reason = models.CharField(max_length=50, null=True, blank=True, choices=ABANDONMENT_REASON_CHOICES)
     abandonment_justification = models.TextField(blank=True)
+    # SLA y vencimiento
+    sla_deadline = models.DateTimeField('Fecha límite SLA', null=True, blank=True)
+    sla_breached = models.BooleanField('SLA vencido', default=False)
+    priority = models.CharField('Prioridad', max_length=10, choices=ManagementCase.PRIORITY_CHOICES, default='media')
     started_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+
+    def can_transition_to(self, new_status):
+        return new_status in self.ALLOWED_TRANSITIONS.get(self.status, [])
+
+    def transition_to(self, new_status, user=None, observation='', action='status_change'):
+        if not self.can_transition_to(new_status):
+            raise ValueError(
+                f"Transición inválida: '{self.get_status_display()}' "
+                f"→ '{dict(self.STATUS_CHOICES).get(new_status, new_status)}'"
+            )
+        previous = self.status
+        self.status = new_status
+        self.save(update_fields=['status'])
+        CaseAudit.objects.create(
+            session=self, user=user, action=action,
+            previous_status=previous, new_status=new_status,
+            observation=observation,
+        )
+
+    def is_overdue(self):
+        from django.utils import timezone
+        if self.sla_deadline and not self.sla_breached:
+            return timezone.now() > self.sla_deadline
+        return self.sla_breached
+
+    @property
+    def sla_hours_remaining(self):
+        from django.utils import timezone
+        if not self.sla_deadline or self.sla_breached:
+            return None
+        delta = self.sla_deadline - timezone.now()
+        return max(0, round(delta.total_seconds() / 3600, 1))
 
     def __str__(self):
         return f"{self.user.get_full_name()} — {self.case.title}"
@@ -304,4 +362,36 @@ class IAErrorLog(models.Model):
     class Meta:
         verbose_name = 'Error de IA'
         verbose_name_plural = 'Errores de IA'
+        ordering = ['-created_at']
+
+
+# ── Historial de auditoría por caso ─────────────────────────────────────────────
+
+class CaseAudit(models.Model):
+    ACTION_CHOICES = [
+        ('created', 'Sesión creada'),
+        ('status_change', 'Cambio de estado'),
+        ('reviewed', 'Revisado'),
+        ('observed', 'Observación registrada'),
+        ('approved', 'Aprobado'),
+        ('rejected', 'Devuelto'),
+        ('corrected', 'Corrección recibida'),
+        ('escalated', 'Escalado'),
+        ('closed', 'Cerrado'),
+    ]
+
+    session = models.ForeignKey(CaseSession, on_delete=models.CASCADE, related_name='audit_logs')
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='audit_actions')
+    action = models.CharField('Acción', max_length=20, choices=ACTION_CHOICES)
+    previous_status = models.CharField(max_length=30, blank=True)
+    new_status = models.CharField(max_length=30, blank=True)
+    observation = models.TextField('Observación', blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"[{self.created_at:%d/%m/%Y %H:%M}] {self.user} — {self.get_action_display()}"
+
+    class Meta:
+        verbose_name = 'Auditoría de Caso'
+        verbose_name_plural = 'Auditorías de Casos'
         ordering = ['-created_at']

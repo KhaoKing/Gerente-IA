@@ -4,7 +4,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.utils import timezone
-from .models import ManagementCase, CaseSession, ChatMessage, DiagnosisSession, DiagnosisMessage, IAErrorLog, AIConfiguration
+from .models import ManagementCase, CaseSession, ChatMessage, DiagnosisSession, DiagnosisMessage, IAErrorLog, AIConfiguration, CaseAudit
 from .ai_engine import (
     get_ai_response, get_diagnosis_response, get_ia_error_message,
     notify_admin_ia_error, DIAGNOSIS_QUESTIONS, FINISH_TRIGGERS,
@@ -42,7 +42,7 @@ def dashboard(request):
         ).select_related('case').first()
 
         completed_sessions = CaseSession.objects.filter(
-            user=user, status__in=['completado', 'en_revision', 'evaluado']
+            user=user, status__in=['completado', 'en_validacion', 'observado', 'corregido', 'cerrado']
         ).select_related('case').order_by('-completed_at')[:5]
 
         context.update({
@@ -55,12 +55,40 @@ def dashboard(request):
 
     elif user.is_mae:
         from accounts.models import User as UserModel
-        from django.db.models import Avg, Count, Max, Min
+        from django.db.models import Avg, Count, Max, Min, Q
+        from django.db.models.functions import TruncDate
+        from datetime import timedelta
 
-        # Diagnósticos completados esperando validación del MAE
+        # ── Filtros del dashboard ──
+        status_filter = request.GET.get('status', '')
+        gerente_filter = request.GET.get('gerente', '')
+        category_filter = request.GET.get('category', '')
+        priority_filter = request.GET.get('priority', '')
+        date_from = request.GET.get('date_from', '')
+        date_to = request.GET.get('date_to', '')
+
+        session_filter = Q()
+        diagnosis_filter = Q()
+        if status_filter:
+            session_filter &= Q(status=status_filter)
+        if gerente_filter:
+            session_filter &= Q(user_id=gerente_filter)
+            diagnosis_filter &= Q(user_id=gerente_filter)
+        if category_filter:
+            session_filter &= Q(case__category=category_filter)
+        if priority_filter:
+            session_filter &= Q(priority=priority_filter)
+        if date_from:
+            session_filter &= Q(started_at__date__gte=date_from)
+            diagnosis_filter &= Q(completed_at__date__gte=date_from)
+        if date_to:
+            session_filter &= Q(started_at__date__lte=date_to)
+            diagnosis_filter &= Q(completed_at__date__lte=date_to)
+
+        # Diagnósticos completados esperando validación del Docente Tutor
         pending_diagnoses = DiagnosisSession.objects.filter(
             status='completado'
-        ).select_related('user').order_by('-completed_at')
+        ).filter(diagnosis_filter).select_related('user').order_by('-completed_at')
 
         # Sesiones de caso pendientes de revisión
         pending_reviews = CaseSession.objects.filter(
@@ -68,11 +96,53 @@ def dashboard(request):
         ).select_related('user', 'case').order_by('-completed_at')
 
         in_review = CaseSession.objects.filter(
-            mae=user, status='en_revision'
+            mae=user, status='en_validacion'
         ).select_related('user', 'case')
-        all_manager_sessions = CaseSession.objects.select_related('user', 'case').order_by('-started_at')
+        all_manager_sessions = CaseSession.objects.filter(session_filter).select_related('user', 'case').order_by('-started_at')
 
         managers_list = UserModel.objects.filter(role='gerente').prefetch_related('manager_profile')
+
+        # ── Métricas agregadas por gerente (directorio) ──
+        manager_sessions = CaseSession.objects.select_related('user').all()
+        manager_data = {}
+        for s in manager_sessions:
+            uid = s.user_id
+            if uid not in manager_data:
+                manager_data[uid] = {
+                    'total': 0, 'active': 0, 'pending': 0,
+                    'overdue': 0, 'nchs_list': [],
+                }
+            d = manager_data[uid]
+            d['total'] += 1
+            if s.status in ('en_progreso',):
+                d['active'] += 1
+            if s.status in ('completado',):
+                d['pending'] += 1
+            if s.is_overdue() or s.sla_breached:
+                d['overdue'] += 1
+            if s.nchs_score is not None:
+                d['nchs_list'].append(float(s.nchs_score))
+
+        managers_enriched = []
+        for m in managers_list:
+            d = manager_data.get(m.id, {'total':0, 'active':0, 'pending':0, 'overdue':0, 'nchs_list':[]})
+            nchs_scores = d['nchs_list']
+            avg_nchs = round(sum(nchs_scores) / len(nchs_scores), 3) if nchs_scores else 0
+            last = nchs_scores[-1] if len(nchs_scores) >= 1 else None
+            prev = nchs_scores[-2] if len(nchs_scores) >= 2 else None
+            trend = None
+            if last is not None and prev is not None:
+                trend = round(last - prev, 3)
+            managers_enriched.append({
+                'id': m.id,
+                'name': m.get_full_name(),
+                'total': d['total'],
+                'active': d['active'],
+                'pending': d['pending'],
+                'overdue': d['overdue'],
+                'avg_nchs': avg_nchs,
+                'trend': trend,
+            })
 
         # ── Métricas de tiempos de respuesta ──
         response_metrics = ChatMessage.objects.filter(
@@ -141,6 +211,79 @@ def dashboard(request):
             status='abandoned'
         ).select_related('user').order_by('-last_heartbeat')
 
+        # Sesiones con SLA vencido
+        from django.utils import timezone
+        overdue_sessions = CaseSession.objects.filter(
+            sla_deadline__isnull=False,
+            sla_breached=False,
+            sla_deadline__lt=timezone.now()
+        ).select_related('user', 'case').order_by('sla_deadline')
+
+        # Sesiones escaladas
+        escalated_sessions = CaseSession.objects.filter(
+            status='escalado'
+        ).select_related('user', 'case').order_by('-started_at')
+
+        # ── KPI: críticos (alta prioridad + SLA vencido) ──
+        critical_sessions = CaseSession.objects.filter(
+            priority='alta',
+            sla_deadline__isnull=False,
+            sla_breached=True,
+        ).count()
+
+        # ── % Cumplimiento SLA ──
+        total_with_sla = CaseSession.objects.filter(sla_deadline__isnull=False).count()
+        breached_count = CaseSession.objects.filter(sla_breached=True).count()
+        sla_compliance = round((total_with_sla - breached_count) / max(total_with_sla, 1) * 100, 1)
+
+        # ── Serie temporal: últimos 7 días ──
+        seven_days_ago = timezone.now().date() - timedelta(days=6)
+        daily_metrics_raw = ChatMessage.objects.filter(
+            role='user', response_time_seconds__isnull=False,
+            created_at__date__gte=seven_days_ago
+        ).annotate(
+            day=TruncDate('created_at')
+        ).values('day').annotate(
+            avg_response=Avg('response_time_seconds'),
+            msg_count=Count('id')
+        ).order_by('day')
+
+        daily_metrics = []
+        for d in daily_metrics_raw:
+            daily_metrics.append({
+                'day': d['day'].strftime('%d/%m'),
+                'avg_response': round(d['avg_response'], 1),
+                'count': d['msg_count'],
+            })
+
+        # ── Segmentación por categoría ──
+        category_metrics_raw = ChatMessage.objects.filter(
+            role='user', response_time_seconds__isnull=False
+        ).values(
+            'session__case__category'
+        ).annotate(
+            avg_response=Avg('response_time_seconds'),
+            msg_count=Count('id')
+        ).order_by('avg_response')
+
+        category_metrics = []
+        category_labels = dict(ManagementCase.CATEGORY_CHOICES)
+        for c in category_metrics_raw:
+            cat = c['session__case__category']
+            category_metrics.append({
+                'label': category_labels.get(cat, cat),
+                'avg_response': round(c['avg_response'], 1),
+                'count': c['msg_count'],
+            })
+
+        # ── Query string de filtros para links persistentes ──
+        filter_params = []
+        for key in ['status', 'gerente', 'category', 'priority', 'date_from', 'date_to']:
+            val = request.GET.get(key, '')
+            if val:
+                filter_params.append(f'{key}={val}')
+        filter_qs = '&'.join(filter_params)
+
         total_measured = ChatMessage.objects.filter(
             role='user', response_time_seconds__isnull=False
         ).count()
@@ -151,6 +294,7 @@ def dashboard(request):
             'in_review': in_review,
             'all_sessions': all_manager_sessions,
             'managers_list': managers_list,
+            'managers_enriched': managers_enriched,
             'response_metrics': response_metrics,
             'fine_metrics': fine_metrics,
             'user_metrics': user_metrics,
@@ -159,6 +303,21 @@ def dashboard(request):
             'nchs_aggregate': nchs_aggregate,
             'class_data': class_data,
             'abandoned_sessions': abandoned_sessions,
+            'overdue_sessions': overdue_sessions,
+            'escalated_sessions': escalated_sessions,
+            'critical_count': critical_sessions,
+            'sla_compliance': sla_compliance,
+            'total_with_sla': total_with_sla,
+            'daily_metrics': daily_metrics,
+            'category_metrics': category_metrics,
+            'filter_qs': filter_qs,
+            # Filtros activos
+            'filter_status': status_filter,
+            'filter_gerente': gerente_filter,
+            'filter_category': category_filter,
+            'filter_priority': priority_filter,
+            'filter_date_from': date_from,
+            'filter_date_to': date_to,
         })
 
     elif user.is_admin_role:
@@ -229,7 +388,7 @@ def start_diagnosis(request):
         if session.status == 'en_progreso':
             return redirect('diagnosis_chat')
         if session.status == 'rechazado':
-            # El MAE rechazó: reiniciamos el diagnóstico reusando la misma sesión
+            # El Docente Tutor rechazó: reiniciamos el diagnóstico reusando la misma sesión
             session.messages.all().delete()
             session.status = 'en_progreso'
             session.current_question = 1
@@ -249,7 +408,7 @@ def start_diagnosis(request):
             DiagnosisMessage.objects.create(
                 session=session, role='assistant',
                 content=(
-                    "Vamos a repetir el diagnóstico según indicó tu MAE.\n\n"
+                    "Vamos a repetir el diagnóstico según indicó tu Docente Tutor.\n\n"
                     "Responde con frases completas y describe claramente qué harías y por qué.\n\n"
                     "---\n\n"
                     f"{first_q['text']}"
@@ -261,7 +420,7 @@ def start_diagnosis(request):
             # Ya aprobado: no se reinicia
             return redirect('dashboard')
         if session.status == 'completado':
-            # Esperando MAE
+            # Esperando Docente Tutor
             return redirect('dashboard')
     except DiagnosisSession.DoesNotExist:
         pass
@@ -273,7 +432,7 @@ def start_diagnosis(request):
     DiagnosisMessage.objects.create(
         session=session, role='assistant',
         content=(
-            "¡Hola! Soy tu MAE IA.\n\n"
+            "¡Hola! Soy tu MAE.\n\n"
             "Antes de comenzar tu programa de capacitación, necesito conocer tu nivel "
             "gerencial actual. Te haré **5 preguntas situacionales** — no hay respuestas "
             "correctas o incorrectas, solo quiero entender cómo piensas y decides.\n\n"
@@ -341,7 +500,7 @@ def diagnosis_send(request):
         session.completed_at = timezone.now()
         session.save()
 
-        # Marcar perfil como diagnóstico completado (nivel se asigna cuando el MAE lo revise)
+        # Marcar perfil como diagnóstico completado (nivel se asigna cuando el Docente Tutor lo revise)
         try:
             profile = request.user.manager_profile
             profile.diagnosis_completed = True
@@ -376,7 +535,7 @@ def diagnosis_send(request):
 @login_required
 def start_case(request):
     # Los gerentes solo pueden iniciar caso con la IA si su diagnóstico ya fue
-    # aprobado por el MAE. Antes de eso, su único botón disponible es el del
+    # aprobado por el Docente Tutor. Antes de eso, su único botón disponible es el del
     # diagnóstico inicial (5 preguntas).
     if request.user.is_gerente:
         try:
@@ -387,7 +546,7 @@ def start_case(request):
             return redirect('dashboard')
 
     completed_ids = CaseSession.objects.filter(
-        user=request.user, status__in=['completado', 'en_revision', 'evaluado']
+        user=request.user, status__in=['completado', 'en_validacion', 'observado', 'corregido', 'cerrado']
     ).values_list('case_id', flat=True)
 
     # Filtrar por nivel del gerente si ya tiene uno asignado
@@ -410,7 +569,15 @@ def start_case(request):
     if not case:
         return redirect('dashboard')
 
-    session = CaseSession.objects.create(user=request.user, case=case, current_phase='ambiguity')
+    session = CaseSession.objects.create(
+        user=request.user, case=case, current_phase='ambiguity',
+        status='en_progreso', priority=case.priority,
+        sla_deadline=timezone.now() + timezone.timedelta(hours=case.sla_hours) if case.sla_hours else None,
+    )
+    CaseAudit.objects.create(
+        session=session, user=request.user, action='created',
+        previous_status='', new_status='en_progreso',
+    )
     ChatMessage.objects.create(
         session=session, role='assistant',
         content=(
@@ -433,7 +600,7 @@ def chat_view(request, session_id):
     session = get_object_or_404(CaseSession, id=session_id, user=request.user)
 
     # Si la sesión está completada y no tiene post-autopsia, redirigir
-    if session.status in ('completado', 'en_revision') and not hasattr(session, 'post_autopsy'):
+    if session.status in ('completado', 'en_validacion', 'observado', 'corregido', 'cerrado') and not hasattr(session, 'post_autopsy'):
         return redirect('post_autopsy', session_id=session.id)
 
     chat_messages = session.messages.all()
@@ -560,9 +727,11 @@ def send_message(request, session_id):
 
     # Cerrar sesión si el usuario quiso finalizar
     if any(t in user_message.lower() for t in FINISH_TRIGGERS):
-        session.status = 'completado'
         session.completed_at = timezone.now()
         session.ia_feedback = ai_text
+        if not session.sla_deadline and session.case.sla_hours:
+            session.sla_deadline = timezone.now() + timezone.timedelta(hours=session.case.sla_hours)
+        session.transition_to('completado', user=request.user)
 
     # Avanzar de fase si corresponde
     phase_order = ['ambiguity', 'pressure', 'dilemma']
@@ -592,7 +761,7 @@ def send_message(request, session_id):
                         "---\n"
                         "**Fases completadas**\n\n"
                         "Has atravesado ambigüedad, presión y un dilema ético. "
-                        "Tu sesión será revisada por tu MAE. "
+                        "Tu sesión será revisada por tu Docente Tutor. "
                         "Escribe **'evaluar'** si deseas recibir retroalimentación inmediata."
                     ),
                 }
@@ -620,7 +789,7 @@ def send_message(request, session_id):
     })
 
 
-# ── Panel del MAE ─────────────────────────────────────────────────────────────
+# ── Panel del Docente Tutor ─────────────────────────────────────────────────────────────
 
 @login_required
 def mae_review(request, session_id):
@@ -633,15 +802,26 @@ def mae_review(request, session_id):
     if request.method == 'POST':
         verdict = request.POST.get('mae_verdict', '').strip()
         approved = request.POST.get('mae_approved') == 'true'
+        new_status = request.POST.get('new_status', '')
 
         session.mae = request.user
         session.mae_verdict = verdict
         session.mae_approved = approved
-        session.status = 'evaluado'
         session.mae_reviewed_at = timezone.now()
+
+        if new_status and new_status in dict(CaseSession.STATUS_CHOICES):
+            session.transition_to(new_status, user=request.user, observation=verdict)
+        elif approved:
+            session.transition_to('cerrado', user=request.user, observation=verdict, action='approved')
+        else:
+            session.transition_to('observado', user=request.user, observation=verdict, action='rejected')
+
         session.save()
 
         return redirect('dashboard')
+
+    if session.status == 'completado' and session.can_transition_to('en_validacion'):
+        session.transition_to('en_validacion', user=request.user)
 
     return render(request, 'cases/mae_review.html', {
         'session': session, 'chat_messages': chat_messages, 'case': session.case,
@@ -650,7 +830,7 @@ def mae_review(request, session_id):
 
 @login_required
 def mae_diagnosis_review(request, session_id):
-    """El MAE revisa el diagnóstico (5 preguntas) y aprueba o rechaza al gerente."""
+    """El Docente Tutor revisa el diagnóstico (5 preguntas) y aprueba o rechaza al gerente."""
     if not request.user.is_mae:
         return redirect('dashboard')
 
@@ -672,6 +852,103 @@ def mae_diagnosis_review(request, session_id):
 
     return render(request, 'cases/mae_diagnosis_review.html', {
         'session': session, 'chat_messages': chat_messages,
+    })
+
+
+@login_required
+def diagnosis_detail(request, session_id):
+    if not (request.user.is_mae or request.user.is_admin_role):
+        return redirect('dashboard')
+
+    session = get_object_or_404(DiagnosisSession.objects.select_related('user'), id=session_id)
+    messages = session.messages.all()
+
+    try:
+        profile = session.user.manager_profile
+    except Exception:
+        profile = None
+
+    return render(request, 'cases/diagnosis_detail.html', {
+        'session': session,
+        'messages': messages,
+        'profile': profile,
+    })
+
+
+# ── Escalamiento ────────────────────────────────────────────────────────────────
+
+@login_required
+def mae_escalate(request, session_id):
+    if not request.user.is_mae:
+        return redirect('dashboard')
+
+    session = get_object_or_404(CaseSession, id=session_id)
+
+    if request.method == 'POST':
+        motivo = request.POST.get('motivo', '').strip()
+        target_mae_id = request.POST.get('target_mae', '')
+
+        session.transition_to('escalado', user=request.user, observation=motivo, action='escalated')
+
+        if target_mae_id:
+            from accounts.models import User as UserModel
+            try:
+                new_mae = UserModel.objects.get(id=target_mae_id, role='mae')
+                previous_mae = session.mae.get_full_name() if session.mae else 'Sin asignar'
+                session.mae = new_mae
+                session.save(update_fields=['mae'])
+                CaseAudit.objects.create(
+                    session=session, user=request.user,
+                    action='escalated',
+                    previous_status='', new_status='',
+                    observation=f'Reasignado: {previous_mae} → {new_mae.get_full_name()} — {motivo}',
+                )
+            except UserModel.DoesNotExist:
+                pass
+
+        return redirect('dashboard')
+
+    from accounts.models import User as UserModel
+    mae_list = UserModel.objects.filter(role='mae').exclude(id=request.user.id)
+
+    return render(request, 'cases/mae_escalate.html', {
+        'session': session, 'case': session.case, 'mae_list': mae_list,
+    })
+
+
+# ── Detalle de caso (Expediente) ────────────────────────────────────────────────
+
+@login_required
+def case_detail(request, session_id):
+    """Vista detallada del expediente de un caso para el Docente Tutor."""
+    if not (request.user.is_mae or request.user.is_admin_role):
+        return redirect('dashboard')
+
+    session = get_object_or_404(CaseSession.objects.select_related('user', 'case'), id=session_id)
+    chat_messages = session.messages.all()
+    audit_logs = session.audit_logs.select_related('user').order_by('-created_at')
+
+    try:
+        pre_eval = session.pre_evaluation
+    except Exception:
+        pre_eval = None
+    try:
+        post_autopsy = session.post_autopsy
+    except Exception:
+        post_autopsy = None
+    try:
+        profile = session.user.manager_profile
+    except Exception:
+        profile = None
+
+    return render(request, 'cases/case_detail.html', {
+        'session': session,
+        'case': session.case,
+        'chat_messages': chat_messages,
+        'audit_logs': audit_logs,
+        'pre_eval': pre_eval,
+        'post_autopsy': post_autopsy,
+        'profile': profile,
     })
 
 
@@ -712,7 +989,7 @@ def post_autopsy(request, session_id):
     session = get_object_or_404(CaseSession, id=session_id, user=request.user)
 
     # Solo sesiones completadas pueden tener autopsia
-    if session.status not in ('completado', 'en_revision', 'evaluado', 'abandoned'):
+    if session.status not in ('completado', 'en_validacion', 'observado', 'corregido', 'cerrado', 'abandoned'):
         return redirect('chat', session_id=session.id)
 
     # Si ya tiene post-autopsia, redirigir al dashboard
@@ -855,9 +1132,37 @@ def export_csv(request):
         return redirect('dashboard')
     import csv
     from django.http import HttpResponse
+    from django.db.models import Q
+
+    # Aplicar filtros del dashboard
+    status_filter = request.GET.get('status', '')
+    gerente_filter = request.GET.get('gerente', '')
+    category_filter = request.GET.get('category', '')
+    priority_filter = request.GET.get('priority', '')
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+
+    session_filter = Q()
+    if status_filter:
+        session_filter &= Q(status=status_filter)
+    if gerente_filter:
+        session_filter &= Q(user_id=gerente_filter)
+    if category_filter:
+        session_filter &= Q(case__category=category_filter)
+    if priority_filter:
+        session_filter &= Q(priority=priority_filter)
+    if date_from:
+        session_filter &= Q(started_at__date__gte=date_from)
+    if date_to:
+        session_filter &= Q(started_at__date__lte=date_to)
 
     response = HttpResponse(content_type='text/csv; charset=utf-8')
-    response['Content-Disposition'] = 'attachment; filename="mae_telemetria.csv"'
+    filename_parts = ['mae_telemetria']
+    if gerente_filter:
+        filename_parts.append(f'gerente_{gerente_filter}')
+    if status_filter:
+        filename_parts.append(status_filter)
+    response['Content-Disposition'] = f'attachment; filename="{"_".join(filename_parts)}.csv"'
     response.write('\ufeff')  # BOM para Excel
 
     writer = csv.writer(response)
@@ -869,7 +1174,7 @@ def export_csv(request):
         'Current_NCHs_Score', 'Created_At',
     ])
 
-    sessions = CaseSession.objects.select_related('user', 'case').prefetch_related('messages').all()
+    sessions = CaseSession.objects.filter(session_filter).select_related('user', 'case').prefetch_related('messages')
     interaction_counter = {}
 
     for session in sessions:

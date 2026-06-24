@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block title %}Escalar Caso — Gerente IA{% endblock %}
+{% block content %}
+<div class="mae-review-page">
+  <div class="mae-review-header">
+    <a href="{% url 'dashboard' %}" class="btn-ghost">← Volver al Dashboard</a>
+    <h1>⚠️ Escalar Caso</h1>
+    <p style="color:var(--text-2);font-size:.875rem">
+      Gerente: <strong>{{ session.user.get_full_name }}</strong> ·
+      Caso: <strong>{{ case.title }}</strong> ·
+      Estado actual: <span style="color:#ef4444;font-weight:600">{{ session.get_status_display }}</span>
+    </p>
+  </div>
+
+  <div class="mae-review-grid">
+    <div class="card card-wide">
+      <h3>Motivo de escalamiento</h3>
+      <form method="POST">
+        {% csrf_token %}
+        <div class="form-group" style="margin-bottom:1.5rem">
+          <label>¿Por qué escalas este caso?</label>
+          <textarea name="motivo" rows="3" placeholder="Describe el motivo del escalamiento..." required></textarea>
+        </div>
+
+        <div class="form-group" style="margin-bottom:1.5rem">
+          <label>Reasignar a otro Docente Tutor (opcional)</label>
+          <select name="target_mae" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.4rem .6rem;font-size:.8rem;color:var(--text);width:100%">
+            <option value="">Sin reasignar</option>
+            {% for m in mae_list %}
+            <option value="{{ m.id }}">{{ m.get_full_name }} ({{ m.email }})</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <button type="submit" class="btn-primary" style="background:var(--accent-orange)">Escalar caso →</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

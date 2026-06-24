@@ -154,7 +154,7 @@ nohup python manage.py runserver > server.log 2>&1 &
 | Usuario | Contraseña | Rol | Notas |
 |---------|-----------|-----|-------|
 | `admin` | `admin123` | Administrador | Acceso a `/admin/` |
-| `mae1` | `mae123` | MAE | Vista de gerentes y sesiones |
+| `mae1` | `mae123` | Docente Tutor | Vista de gerentes y sesiones |
 | `gerente1` | `gerente123` | Gerente | Sin perfil completado (flujo completo) |
 
 > Al hacer login con `gerente1` se redirige automáticamente al formulario de perfil antes de ver el dashboard.
@@ -166,7 +166,7 @@ nohup python manage.py runserver > server.log 2>&1 &
 ```
 Login
   ├── Admin    → Dashboard con métricas + panel /admin/
-  ├── MAE    → Dashboard con lista de gerentes y sesiones
+  ├── Docente Tutor    → Dashboard con lista de gerentes y sesiones
   └── Gerente
         ├── (primer login) → Completar perfil
         └── Dashboard → Iniciar caso → Chatbox con IA

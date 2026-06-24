@@ -17,8 +17,7 @@ class Command(BaseCommand):
             last_activity = session.last_heartbeat or session.messages.last().created_at if session.messages.exists() else session.started_at
 
             if last_activity and last_activity < threshold:
-                session.status = 'abandoned'
-                session.save(update_fields=['status'])
+                session.transition_to('abandoned')
                 count += 1
                 self.stdout.write(
                     self.style.WARNING(

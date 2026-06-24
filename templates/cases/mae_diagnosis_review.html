@@ -18,7 +18,7 @@
         {% for msg in chat_messages %}
         <div class="transcript-msg transcript-{{ msg.role }}">
           <div class="transcript-meta">
-            <strong>{% if msg.role == 'assistant' %}MAE IA{% else %}{{ session.user.get_full_name }}{% endif %}</strong>
+            <strong>{% if msg.role == 'assistant' %}MAE{% else %}{{ session.user.get_full_name }}{% endif %}</strong>
             <span>{{ msg.created_at|date:"d/m/Y H:i" }}</span>
             {% if msg.question_number %}<span style="color:var(--accent)">Pregunta {{ msg.question_number }}</span>{% endif %}
           </div>
@@ -31,12 +31,12 @@
     </div>
 
     <div class="card card-wide">
-      <h3>✍️ Dictamen del MAE</h3>
+      <h3>✍️ Dictamen del Docente Tutor</h3>
       <form method="POST" class="mae-verdict-form">
         {% csrf_token %}
         <div class="form-group" style="margin-bottom:1.5rem">
           <label>Tu veredicto sobre este diagnóstico</label>
-          <textarea name="mae_verdict" rows="4" placeholder="Escribe tu evaluación sobre las respuestas del gerente y la recomendación de la IA..." required></textarea>
+          <textarea name="mae_verdict" rows="4" placeholder="Escribe tu evaluación sobre las respuestas del gerente y la recomendación del MAE..." required></textarea>
         </div>
 
         <div style="display:flex;gap:1rem;margin-bottom:1.5rem">
@@ -44,7 +44,7 @@
             <input type="radio" name="mae_approved" value="true" required>
             <div>
               <strong style="color:var(--accent-green)">✅ Aprobar</strong>
-              <p style="font-size:.8rem;color:var(--text-2);margin-top:.2rem">El diagnóstico es adecuado. Se habilitará el chatbox con IA para el gerente.</p>
+              <p style="font-size:.8rem;color:var(--text-2);margin-top:.2rem">El diagnóstico es adecuado. Se habilitará el chatbox con el MAE para el gerente.</p>
             </div>
           </label>
           <label class="verdict-option">

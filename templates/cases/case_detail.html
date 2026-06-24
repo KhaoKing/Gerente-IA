@@ -1,0 +1,158 @@
+{% extends 'base.html' %}
+{% block title %}Expediente — {{ case.title }}{% endblock %}
+{% block content %}
+<div class="mae-review-page">
+  <div class="mae-review-header">
+    <a href="{% url 'dashboard' %}" class="btn-ghost">← Volver al Dashboard</a>
+    <h1>📋 Expediente del Caso</h1>
+    <p style="color:var(--text-2);font-size:.875rem">
+      Gerente: <strong>{{ session.user.get_full_name }}</strong> ·
+      Caso: <strong>{{ case.title }}</strong> ·
+      Iniciado: {{ session.started_at|date:"d/m/Y H:i" }}
+    </p>
+  </div>
+
+  <div class="mae-review-grid">
+
+    {# ── Panel de información ── #}
+    <div class="card card-wide">
+      <div style="display:flex;gap:1.5rem;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <h4 style="font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);margin-bottom:.5rem">Datos del Caso</h4>
+          <p><strong>Tipo:</strong> {{ case.get_category_display }}</p>
+          <p><strong>Dificultad:</strong> {{ case.get_difficulty_display }}</p>
+          <p><strong>Prioridad:</strong> <span style="{% if session.priority == 'alta' %}color:#ef4444;font-weight:600{% elif session.priority == 'media' %}color:var(--accent-orange){% endif %}">{{ session.get_priority_display }}</span></p>
+          <p><strong>Estado:</strong> <span class="status-badge" style="background:{% if session.status == 'nuevo' %}rgba(148,163,184,.1);color:var(--text-2){% elif session.status == 'en_progreso' %}rgba(37,99,235,.1);color:var(--accent){% elif session.status == 'completado' %}rgba(5,150,105,.1);color:var(--accent-green){% elif session.status == 'en_validacion' %}rgba(99,102,241,.1);color:var(--accent-2){% elif session.status == 'observado' %}rgba(217,119,6,.1);color:var(--accent-orange){% elif session.status == 'corregido' %}rgba(5,150,105,.1);color:var(--accent-green){% elif session.status == 'escalado' %}rgba(239,68,68,.1);color:#ef4444{% elif session.status == 'cerrado' %}rgba(148,163,184,.1);color:var(--text-2){% endif %}">{{ session.get_status_display }}</span></p>
+          <p><strong>Fase:</strong> {{ session.get_current_phase_display }}</p>
+        </div>
+        <div style="flex:1;min-width:200px">
+          <h4 style="font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);margin-bottom:.5rem">SLA</h4>
+          {% if session.sla_deadline %}
+          <p><strong>Fecha límite:</strong> {{ session.sla_deadline|date:"d/m/Y H:i" }}</p>
+          {% if session.sla_breached or session.is_overdue %}
+          <p style="color:#ef4444;font-weight:600">⏰ SLA Vencido</p>
+          {% else %}
+          <p><strong>Tiempo restante:</strong> <span style="color:var(--accent-green)">{{ session.sla_hours_remaining }} horas</span></p>
+          {% endif %}
+          {% else %}
+          <p style="color:var(--text-3)">Sin SLA configurado</p>
+          {% endif %}
+          <p style="margin-top:.5rem"><strong>Completado:</strong> {{ session.completed_at|date:"d/m/Y H:i"|default:"—" }}</p>
+        </div>
+        <div style="flex:1;min-width:200px">
+          <h4 style="font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);margin-bottom:.5rem">Perfil del Gerente</h4>
+          {% if profile %}
+          <p><strong>Cargo:</strong> {{ profile.position }}</p>
+          <p><strong>Empresa:</strong> {{ profile.company }}</p>
+          <p><strong>Industria:</strong> {{ profile.get_industry_display }}</p>
+          <p><strong>Experiencia:</strong> {{ profile.get_experience_years_display }}</p>
+          <p><strong>Nivel asignado:</strong> {{ profile.get_level_display }}</p>
+          {% else %}
+          <p style="color:var(--text-3)">Perfil no completado</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {# ── Indicadores NChs ── #}
+    <div class="card card-wide">
+      <h3>📊 Métricas NC_hs</h3>
+      <div class="stats-row" style="margin-top:.8rem">
+        <div class="stat-card"><span class="stat-value">{{ session.nchs_score|floatformat:3 }}</span><span class="stat-label">Índice NC_hs</span></div>
+        <div class="stat-card"><span class="stat-value">{{ session.n_interactions }}</span><span class="stat-label">Interacciones (n)</span></div>
+        <div class="stat-card"><span class="stat-value" style="color:var(--accent-green)">{{ session.acumulado_ac }}</span><span class="stat-label">Acoplamientos (Ac)</span></div>
+        <div class="stat-card"><span class="stat-value" style="color:var(--accent)">{{ session.acumulado_sm }}</span><span class="stat-label">Sincronías (Sm)</span></div>
+        <div class="stat-card"><span class="stat-value" style="color:#f87171">{{ session.acumulado_ts }}</span><span class="stat-label">Traumas (Ts)</span></div>
+      </div>
+    </div>
+
+    {# ── Pre-evaluación y Post-autopsia ── #}
+    {% if pre_eval or post_autopsy %}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem">
+      {% if pre_eval %}
+      <div class="card">
+        <h3>📋 Pre-evaluación</h3>
+        <p style="font-size:.85rem;color:var(--text-2)"><strong>Control percibido:</strong> {{ pre_eval.perceived_control_score }}/5</p>
+        <p style="font-size:.85rem;color:var(--text-2)"><strong>Confianza en el MAE:</strong> {{ pre_eval.ia_trust_baseline }}/5</p>
+        <p style="font-size:.85rem;color:var(--text-2);margin-top:.5rem"><strong>Declaración del ego:</strong><br>{{ pre_eval.initial_ego_statement }}</p>
+      </div>
+      {% endif %}
+      {% if post_autopsy %}
+      <div class="card">
+        <h3>🧠 Post-autopsia</h3>
+        <p style="font-size:.85rem;color:var(--text-2);margin-bottom:.5rem"><strong>Reflexión del choque:</strong><br>{{ post_autopsy.shock_reflection|truncatechars:150 }}</p>
+        <p style="font-size:.85rem;color:var(--text-2);margin-bottom:.5rem"><strong>Estrategia de negociación:</strong><br>{{ post_autopsy.negotiation_strategy|truncatechars:150 }}</p>
+        <p style="font-size:.85rem;color:var(--text-2);margin-bottom:.5rem"><strong>Ley 1 — Soberanía:</strong><br>{{ post_autopsy.law_sovereignty|truncatechars:100 }}</p>
+        <p style="font-size:.85rem;color:var(--text-2)"><strong>Ley 4 — Identidad:</strong><br>{{ post_autopsy.law_identity|truncatechars:100 }}</p>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {# ── Historial de auditoría ── #}
+    {% if audit_logs %}
+    <div class="card card-wide">
+      <h3>🕐 Historial de Auditoría</h3>
+      <div class="metrics-table-wrap" style="margin-top:.8rem">
+        <table class="metrics-table">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Usuario</th>
+              <th>Acción</th>
+              <th>Estado Anterior</th>
+              <th>Estado Nuevo</th>
+              <th>Observación</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for log in audit_logs %}
+            <tr>
+              <td>{{ log.created_at|date:"d/m/Y H:i" }}</td>
+              <td>{{ log.user.get_full_name|default:"—" }}</td>
+              <td><span style="font-weight:600;{% if log.action == 'approved' or log.action == 'corrected' %}color:var(--accent-green){% elif log.action == 'rejected' or log.action == 'escalated' %}color:#ef4444{% elif log.action == 'observed' %}color:var(--accent-orange){% else %}color:var(--accent){% endif %}">{{ log.get_action_display }}</span></td>
+              <td>{{ log.previous_status|default:"—" }}</td>
+              <td>{{ log.new_status|default:"—" }}</td>
+              <td style="font-size:.8rem">{{ log.observation|truncatechars:80|default:"—" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    {# ── Transcripción ── #}
+    <div class="card card-wide">
+      <h3>📋 Transcripción de la conversación</h3>
+      <div class="mae-transcript">
+        {% for msg in chat_messages %}
+        {% if msg.message_type != 'system_info' %}
+        <div class="transcript-msg transcript-{{ msg.role }}{% if msg.message_type == 'error_ia' %} transcript-system{% endif %}">
+          <div class="transcript-meta">
+            <strong>{% if msg.role == 'assistant' %}MAE{% elif msg.role == 'system' %}Sistema{% else %}{{ session.user.get_full_name }}{% endif %}</strong>
+            <span>{{ msg.created_at|date:"d/m/Y H:i" }}</span>
+            {% if msg.message_type == 'quick_reply' %}<span style="color:var(--accent)">Respuesta rápida</span>{% endif %}
+            {% if msg.classification_variable %}<span style="color:{% if msg.classification_variable == 'Ts' %}#f87171{% elif msg.classification_variable == 'Sm' %}var(--accent){% else %}var(--accent-green){% endif %};font-weight:600">Clasificación: {{ msg.classification_variable }}</span>{% endif %}
+          </div>
+          <p>{{ msg.content|linebreaksbr }}</p>
+        </div>
+        {% endif %}
+        {% empty %}
+        <p style="color:var(--text-2);text-align:center;padding:2rem">No hay mensajes en esta sesión.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# ── Acciones ── #}
+    <div class="card card-wide">
+      <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:center">
+        <a href="{% url 'mae_review' session.id %}" class="btn-primary">Revisar y dictaminar →</a>
+        <a href="{% url 'export_json' session.id %}" class="btn-secondary">Exportar JSON</a>
+        <a href="{% url 'dashboard' %}" class="btn-ghost">Volver al Dashboard</a>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

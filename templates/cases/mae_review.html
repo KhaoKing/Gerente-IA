@@ -25,7 +25,7 @@
       </div>
       {% if session.ia_feedback %}
       <div style="margin-top:1rem;padding:1rem;background:var(--bg-3);border-radius:10px;font-size:.85rem;color:var(--text-2)">
-        <strong style="color:var(--accent)">Retroalimentación de la IA:</strong>
+        <strong style="color:var(--accent)">Retroalimentación del MAE:</strong>
         <p style="margin-top:.3rem">{{ session.ia_feedback|linebreaksbr }}</p>
       </div>
       {% endif %}
@@ -38,7 +38,7 @@
         {% if msg.message_type != 'system_info' %}
         <div class="transcript-msg transcript-{{ msg.role }}{% if msg.message_type == 'error_ia' %} transcript-system{% endif %}">
           <div class="transcript-meta">
-            <strong>{% if msg.role == 'assistant' %}MAE IA{% elif msg.role == 'system' %}Sistema{% else %}{{ session.user.get_full_name }}{% endif %}</strong>
+            <strong>{% if msg.role == 'assistant' %}MAE{% elif msg.role == 'system' %}Sistema{% else %}{{ session.user.get_full_name }}{% endif %}</strong>
             <span>{{ msg.created_at|date:"d/m/Y H:i" }}</span>
             {% if msg.message_type == 'quick_reply' %}<span style="color:var(--accent)">Respuesta rápida</span>{% endif %}
             {% if msg.message_type == 'error_ia' %}<span style="color:#f97316">Error IA</span>{% endif %}
@@ -58,7 +58,7 @@
     </div>
 
     <div class="card card-wide">
-      <h3>✍️ Dictamen del MAE</h3>
+      <h3>✍️ Dictamen del Docente Tutor</h3>
       <form method="POST" class="mae-verdict-form">
         {% csrf_token %}
         <div class="form-group" style="margin-bottom:1.5rem">
@@ -83,9 +83,44 @@
           </label>
         </div>
 
-        <button type="submit" class="btn-primary">Emitir dictamen →</button>
+        <div style="display:flex;gap:1rem;align-items:center">
+          <button type="submit" class="btn-primary">Emitir dictamen →</button>
+          <a href="{% url 'mae_escalate' session.id %}" class="btn-ghost" style="color:var(--accent-orange);border-color:var(--accent-orange)">⚠️ Escalar caso</a>
+        </div>
       </form>
     </div>
+
+    {% if session.audit_logs.exists %}
+    <div class="card card-wide">
+      <h3>🕐 Bitácora de Auditoría</h3>
+      <div class="metrics-table-wrap" style="margin-top:.8rem">
+        <table class="metrics-table">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Usuario</th>
+              <th>Acción</th>
+              <th>Estado Anterior</th>
+              <th>Estado Nuevo</th>
+              <th>Observación</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for log in session.audit_logs.all %}
+            <tr>
+              <td>{{ log.created_at|date:"d/m/Y H:i" }}</td>
+              <td>{{ log.user.get_full_name|default:"Sistema" }}</td>
+              <td><span style="font-weight:600;{% if log.action == 'approved' or log.action == 'corrected' %}color:var(--accent-green){% elif log.action == 'rejected' or log.action == 'escalated' %}color:#ef4444{% elif log.action == 'observed' %}color:var(--accent-orange){% else %}color:var(--accent){% endif %}">{{ log.get_action_display }}</span></td>
+              <td>{{ log.previous_status|default:"—" }}</td>
+              <td>{{ log.new_status|default:"—" }}</td>
+              <td style="font-size:.8rem">{{ log.observation|truncatechars:80|default:"—" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

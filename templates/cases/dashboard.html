@@ -19,7 +19,7 @@
       {% if diagnosis_state == 'no_iniciado' %}
         <div class="card-badge">PASO 1 — REQUERIDO</div>
         <h3>🎯 Diagnóstico inicial</h3>
-        <p>Antes de comenzar, necesitamos conocer tu nivel gerencial. Tu MAE IA te hará 5 preguntas situacionales.</p>
+        <p>Antes de comenzar, necesitamos conocer tu nivel gerencial. El MAE te hará 5 preguntas situacionales.</p>
         <div style="margin-top:1rem">
           <a href="{% url 'start_diagnosis' %}" class="btn-primary">Iniciar diagnóstico →</a>
         </div>
@@ -27,26 +27,26 @@
       {% elif diagnosis_state == 'en_progreso' %}
         <div class="card-badge">PASO 1 — EN CURSO</div>
         <h3>🎯 Diagnóstico inicial</h3>
-        <p>Continúa con las 5 preguntas situacionales para que tu MAE pueda evaluarte.</p>
+        <p>Continúa con las 5 preguntas situacionales para que tu Docente Tutor pueda evaluarte.</p>
         <div style="margin-top:1rem">
           <a href="{% url 'diagnosis_chat' %}" class="btn-primary">Continuar diagnóstico →</a>
           <span style="margin-left:1rem;font-size:.8rem;color:var(--text-2)">Pregunta {{ diagnosis_session.current_question }} de 5</span>
         </div>
 
       {% elif diagnosis_state == 'esperando_mae' %}
-        <div class="card-badge">ESPERANDO MAE</div>
+        <div class="card-badge">ESPERANDO DOCENTE TUTOR</div>
         <h3>⏳ Diagnóstico enviado</h3>
-        <p>Completaste las 5 preguntas. Tu MAE está revisando tus respuestas. Cuando apruebe, se habilitará el chatbox con la IA.</p>
+        <p>Completaste las 5 preguntas. Tu Docente Tutor está revisando tus respuestas. Cuando apruebe, se habilitará el chatbox con el MAE.</p>
         <div style="margin-top:1rem">
-          <button class="btn-primary" disabled style="opacity:.55;cursor:not-allowed">Pendiente aprobación del MAE</button>
+          <button class="btn-primary" disabled style="opacity:.55;cursor:not-allowed">Pendiente aprobación del Docente Tutor</button>
         </div>
 
       {% elif diagnosis_state == 'rechazado' %}
         <div class="card-badge">REQUIERE REPETIR</div>
         <h3>🔄 Diagnóstico no aprobado</h3>
-        <p>Tu MAE considera que debes repetir el diagnóstico. Vuelve a responder las 5 preguntas con más detalle.</p>
+        <p>Tu Docente Tutor considera que debes repetir el diagnóstico. Vuelve a responder las 5 preguntas con más detalle.</p>
         {% if diagnosis_session.mae_verdict %}
-        <p style="margin-top:.6rem;font-size:.85rem;color:var(--text-2)"><strong>Comentario del MAE:</strong> {{ diagnosis_session.mae_verdict }}</p>
+        <p style="margin-top:.6rem;font-size:.85rem;color:var(--text-2)"><strong>Comentario del Docente Tutor:</strong> {{ diagnosis_session.mae_verdict }}</p>
         {% endif %}
         <div style="margin-top:1rem">
           <a href="{% url 'start_diagnosis' %}" class="btn-primary">Reiniciar diagnóstico →</a>
@@ -60,16 +60,16 @@
             <span class="tag">{{ active_session.case.get_category_display }}</span>
             <span class="tag">{{ active_session.case.get_difficulty_display }}</span>
           </p>
-          <p class="card-desc">Tienes un caso activo con el chatbox de IA. Retoma la conversación.</p>
+          <p class="card-desc">Tienes un caso activo con el chatbox del MAE. Retoma la conversación.</p>
           <div style="margin-top:1rem">
-            <a href="{% url 'chat' active_session.id %}" class="btn-primary">Continuar con la IA →</a>
+            <a href="{% url 'chat' active_session.id %}" class="btn-primary">Continuar con el MAE →</a>
           </div>
         {% else %}
           <div class="card-badge">ENTRENAMIENTO HABILITADO</div>
           <h3>💬 Tu espacio de práctica está listo</h3>
-          <p>Tu MAE te dio luz verde. Ya puedes iniciar un caso gerencial y poner a prueba tus habilidades conversando con la IA.</p>
+          <p>Tu Docente Tutor te dio luz verde. Ya puedes iniciar un caso gerencial y poner a prueba tus habilidades conversando con el MAE.</p>
           <div style="margin-top:1rem">
-            <a href="{% url 'start_case' %}" class="btn-primary">Iniciar caso con IA →</a>
+            <a href="{% url 'start_case' %}" class="btn-primary">Iniciar caso con el MAE →</a>
           </div>
         {% endif %}
       {% endif %}
@@ -101,25 +101,116 @@
   {# ── MAE ── #}
   {% if user.is_mae %}
   <div class="dashboard-grid mae-dashboard">
+    {# ── Barra de filtros ── #}
+    <div class="card card-wide" style="padding:1rem 1.5rem">
+      <form method="GET" style="display:flex;gap:.8rem;flex-wrap:wrap;align-items:flex-end">
+        <div style="display:flex;flex-direction:column;gap:.2rem">
+          <label style="font-size:.7rem;font-weight:600;text-transform:uppercase;color:var(--text-3)">Desde</label>
+          <input type="date" name="date_from" value="{{ filter_date_from }}" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.4rem .6rem;font-size:.8rem;color:var(--text)">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.2rem">
+          <label style="font-size:.7rem;font-weight:600;text-transform:uppercase;color:var(--text-3)">Hasta</label>
+          <input type="date" name="date_to" value="{{ filter_date_to }}" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.4rem .6rem;font-size:.8rem;color:var(--text)">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.2rem">
+          <label style="font-size:.7rem;font-weight:600;text-transform:uppercase;color:var(--text-3)">Estado</label>
+          <select name="status" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.4rem .6rem;font-size:.8rem;color:var(--text)">
+            <option value="">Todos</option>
+            <option value="nuevo" {% if filter_status == 'nuevo' %}selected{% endif %}>Nuevo</option>
+            <option value="en_progreso" {% if filter_status == 'en_progreso' %}selected{% endif %}>En Progreso</option>
+            <option value="completado" {% if filter_status == 'completado' %}selected{% endif %}>Completado</option>
+            <option value="en_validacion" {% if filter_status == 'en_validacion' %}selected{% endif %}>En Validación</option>
+            <option value="observado" {% if filter_status == 'observado' %}selected{% endif %}>Observado</option>
+            <option value="corregido" {% if filter_status == 'corregido' %}selected{% endif %}>Corregido</option>
+            <option value="escalado" {% if filter_status == 'escalado' %}selected{% endif %}>Escalado</option>
+            <option value="cerrado" {% if filter_status == 'cerrado' %}selected{% endif %}>Cerrado</option>
+            <option value="abandoned" {% if filter_status == 'abandoned' %}selected{% endif %}>Abandonada</option>
+          </select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.2rem">
+          <label style="font-size:.7rem;font-weight:600;text-transform:uppercase;color:var(--text-3)">Prioridad</label>
+          <select name="priority" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.4rem .6rem;font-size:.8rem;color:var(--text)">
+            <option value="">Todas</option>
+            <option value="alta" {% if filter_priority == 'alta' %}selected{% endif %}>Alta</option>
+            <option value="media" {% if filter_priority == 'media' %}selected{% endif %}>Media</option>
+            <option value="baja" {% if filter_priority == 'baja' %}selected{% endif %}>Baja</option>
+          </select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.2rem">
+          <label style="font-size:.7rem;font-weight:600;text-transform:uppercase;color:var(--text-3)">Tipo</label>
+          <select name="category" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.4rem .6rem;font-size:.8rem;color:var(--text)">
+            <option value="">Todos</option>
+            <option value="conflicto" {% if filter_category == 'conflicto' %}selected{% endif %}>Manejo de Conflictos</option>
+            <option value="comunicacion" {% if filter_category == 'comunicacion' %}selected{% endif %}>Comunicación Efectiva</option>
+            <option value="delegacion" {% if filter_category == 'delegacion' %}selected{% endif %}>Delegación</option>
+            <option value="motivacion" {% if filter_category == 'motivacion' %}selected{% endif %}>Motivación de Equipos</option>
+            <option value="decision" {% if filter_category == 'decision' %}selected{% endif %}>Toma de Decisiones</option>
+            <option value="cambio" {% if filter_category == 'cambio' %}selected{% endif %}>Gestión del Cambio</option>
+          </select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.2rem">
+          <label style="font-size:.7rem;font-weight:600;text-transform:uppercase;color:var(--text-3)">Gerente</label>
+          <select name="gerente" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.4rem .6rem;font-size:.8rem;color:var(--text)">
+            <option value="">Todos</option>
+            {% for m in managers_list %}
+            <option value="{{ m.id }}" {% if filter_gerente == m.id|stringformat:'s' %}selected{% endif %}>{{ m.get_full_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit" class="btn-primary" style="padding:.4rem .8rem;font-size:.8rem">Filtrar</button>
+        <a href="?" class="btn-ghost" style="padding:.4rem .8rem;font-size:.8rem">Limpiar</a>
+      </form>
+    </div>
+
+    {% if overdue_sessions %}
+    <div class="card card-wide" style="border-left:3px solid #ef4444;background:linear-gradient(135deg,#ffffff,#fef2f2)">
+      <h3 style="color:#ef4444">⏰ SLA Vencido ({{ overdue_sessions|length }})</h3>
+      <ul class="session-list" style="margin-top:.8rem">
+        {% for s in overdue_sessions %}
+        <li class="session-item">
+          <div>
+            <span class="session-title">{{ s.user.get_full_name }} — {{ s.case.title }}</span>
+            <span class="session-meta">Vencido: {{ s.sla_deadline|date:"d/m/Y H:i" }} · {{ s.get_status_display }}</span>
+          </div>
+          <a href="{% url 'mae_review' s.id %}{% if filter_qs %}?{{ filter_qs }}{% endif %}" class="btn-secondary" style="font-size:.78rem;padding:.3rem .7rem">Revisar</a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
     <div class="stats-row" style="grid-column:1/-1">
       <a href="#mae-pending-diagnoses" class="stat-card" data-section="pending-diagnoses"><span class="stat-value">{{ pending_diagnoses|length }}</span><span class="stat-label">Diagnósticos por revisar</span></a>
       <a href="#mae-pending-reviews" class="stat-card" data-section="pending-reviews"><span class="stat-value">{{ pending_reviews|length }}</span><span class="stat-label">Casos pendientes</span></a>
       <a href="#mae-in-review" class="stat-card" data-section="in-review"><span class="stat-value">{{ in_review|length }}</span><span class="stat-label">En revisión</span></a>
       <a href="#mae-directory" class="stat-card" data-section="directory"><span class="stat-value">{{ managers_list|length }}</span><span class="stat-label">Gerentes activos</span></a>
+      {% if overdue_sessions %}
+      <a href="#mae-overdue" class="stat-card" style="border-left:3px solid #ef4444"><span class="stat-value" style="color:#ef4444">{{ overdue_sessions|length }}</span><span class="stat-label">SLA Vencidos</span></a>
+      {% endif %}
+      {% if critical_count %}
+      <a href="#mae-pending-reviews" class="stat-card" style="border-left:3px solid var(--accent-orange)"><span class="stat-value" style="color:var(--accent-orange)">{{ critical_count }}</span><span class="stat-label">Críticos</span></a>
+      {% endif %}
+      {% if escalated_sessions %}
+      <a href="#mae-escalated" class="stat-card" style="border-left:3px solid var(--accent-2)"><span class="stat-value" style="color:var(--accent-2)">{{ escalated_sessions|length }}</span><span class="stat-label">Escalados</span></a>
+      {% endif %}
+      {% if total_with_sla %}<div class="stat-card"><span class="stat-value" style="color:{% if sla_compliance >= 80 %}var(--accent-green){% elif sla_compliance >= 50 %}var(--accent-orange){% else %}#ef4444{% endif %}">{{ sla_compliance }}%</span><span class="stat-label">Cumplimiento SLA</span></div>{% endif %}
     </div>
 
     {% if pending_diagnoses %}
     <div id="mae-pending-diagnoses" class="card card-wide">
       <h3>🎯 Diagnósticos pendientes de validación</h3>
-      <p style="font-size:.85rem;color:var(--text-2);margin-top:.3rem">Hasta que apruebes el diagnóstico, el gerente solo podrá ver el botón de las 5 preguntas (no el chatbox con IA).</p>
+       <p style="font-size:.85rem;color:var(--text-2);margin-top:.3rem">Hasta que apruebes el diagnóstico, el gerente solo podrá ver el botón de las 5 preguntas (no el chatbox con el MAE).</p>
       <ul class="session-list" style="margin-top:.8rem">
         {% for d in pending_diagnoses %}
         <li class="session-item">
           <div>
             <span class="session-title">{{ d.user.get_full_name }} — Diagnóstico inicial</span>
-            <span class="session-meta">{{ d.completed_at|date:"d/m/Y H:i" }}</span>
+            <span class="session-meta">{{ d.completed_at|date:"d/m/Y H:i" }} · {{ d.completed_at|timesince }} en cola</span>
           </div>
-          <a href="{% url 'mae_diagnosis_review' d.id %}" class="btn-secondary" style="font-size:.78rem;padding:.3rem .7rem">Revisar diagnóstico</a>
+          <div style="display:flex;gap:.4rem">
+            <a href="{% url 'diagnosis_detail' d.id %}{% if filter_qs %}?{{ filter_qs }}{% endif %}" class="btn-ghost" style="font-size:.78rem;padding:.3rem .5rem">📋 Detalle</a>
+            <a href="{% url 'mae_diagnosis_review' d.id %}{% if filter_qs %}?{{ filter_qs }}{% endif %}" class="btn-secondary" style="font-size:.78rem;padding:.3rem .7rem">Revisar</a>
+          </div>
         </li>
         {% endfor %}
       </ul>
@@ -136,7 +227,7 @@
             <span class="session-title">{{ s.user.get_full_name }} — {{ s.case.title }}</span>
             <span class="session-meta">{{ s.started_at|date:"d/m/Y H:i" }}</span>
           </div>
-          <a href="{% url 'mae_review' s.id %}" class="btn-secondary" style="font-size:.78rem;padding:.3rem .7rem">Continuar revisión</a>
+          <a href="{% url 'mae_review' s.id %}{% if filter_qs %}?{{ filter_qs }}{% endif %}" class="btn-secondary" style="font-size:.78rem;padding:.3rem .7rem">Continuar revisión</a>
         </li>
         {% endfor %}
       </ul>
@@ -151,9 +242,16 @@
         <li class="session-item">
           <div>
             <span class="session-title">{{ s.user.get_full_name }} — {{ s.case.title }}</span>
-            <span class="session-meta">{{ s.completed_at|date:"d/m/Y H:i" }}</span>
+            <span class="session-meta">{{ s.completed_at|date:"d/m/Y H:i" }} · {{ s.completed_at|timesince }} en cola
+              {% if s.priority == 'alta' %}<span style="color:#ef4444;font-weight:600"> · Alta prioridad</span>{% endif %}
+              {% if s.mae_verdict %}<br><span style="font-size:.7rem;color:var(--text-3)">Obs: {{ s.mae_verdict|truncatechars:60 }}</span>{% endif %}
+            </span>
           </div>
-          <a href="{% url 'mae_review' s.id %}" class="btn-secondary" style="font-size:.78rem;padding:.3rem .7rem">Revisar</a>
+          <div style="display:flex;gap:.4rem">
+            <a href="{% url 'case_detail' s.id %}{% if filter_qs %}?{{ filter_qs }}{% endif %}" class="btn-ghost" style="font-size:.78rem;padding:.3rem .5rem">📋 Expediente</a>
+            <a href="{% url 'mae_review' s.id %}{% if filter_qs %}?{{ filter_qs }}{% endif %}" class="btn-secondary" style="font-size:.78rem;padding:.3rem .7rem">Revisar</a>
+            <a href="{% url 'mae_escalate' s.id %}{% if filter_qs %}?{{ filter_qs }}{% endif %}" class="btn-ghost" style="font-size:.78rem;padding:.3rem .5rem;color:var(--accent-orange);border-color:var(--accent-orange)" title="Escalar">⚠</a>
+          </div>
         </li>
         {% endfor %}
       </ul>
@@ -161,14 +259,54 @@
     {% endif %}
   </div>
   <div id="mae-directory" class="card card-wide" style="margin-top: 1.5rem;">
-    <h3>🔍 Directorio de Gerentes y Respuestas</h3>
+    <h3>🔍 Directorio de Gerentes</h3>
+    <div class="metrics-table-wrap" style="margin-top:1rem">
+      <table class="metrics-table">
+        <thead>
+          <tr>
+            <th>Gerente</th>
+            <th>Total sesiones</th>
+            <th>Carga activa</th>
+            <th>Pendientes</th>
+            <th>Alertas SLA</th>
+            <th>NC_hs promedio</th>
+            <th>Tendencia</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in managers_enriched %}
+          <tr>
+            <td><strong>{{ m.name }}</strong></td>
+            <td>{{ m.total }}</td>
+            <td>{% if m.active %}<span style="color:var(--accent);font-weight:600">{{ m.active }}</span>{% else %}—{% endif %}</td>
+            <td>{% if m.pending %}<span style="color:var(--accent-2);font-weight:600">{{ m.pending }}</span>{% else %}—{% endif %}</td>
+            <td>{% if m.overdue %}<span style="color:#ef4444;font-weight:600">{{ m.overdue }}</span>{% else %}—{% endif %}</td>
+            <td><strong style="color:{% if m.avg_nchs < 0 %}#f87171{% else %}var(--accent-green){% endif %}">{{ m.avg_nchs|floatformat:3 }}</strong></td>
+            <td>
+              {% if m.trend is not None %}
+                {% if m.trend > 0 %}<span style="color:var(--accent-green)">▲ +{{ m.trend|floatformat:3 }}</span>
+                {% elif m.trend < 0 %}<span style="color:#f87171">▼ {{ m.trend|floatformat:3 }}</span>
+                {% else %}<span style="color:var(--text-3)">—</span>{% endif %}
+              {% else %}<span style="color:var(--text-3)">—</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card card-wide" style="margin-top: 1.5rem;">
+    <h3>📋 Registro de Sesiones</h3>
     <div class="session-list" style="margin-top: 1rem;">
       <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
         <thead>
           <tr style="text-align: left; color: var(--text-2); border-bottom: 1px solid var(--border);">
             <th style="padding: 0.8rem;">Gerente</th>
-            <th style="padding: 0.8rem;">Última Actividad</th>
+            <th style="padding: 0.8rem;">Caso</th>
             <th style="padding: 0.8rem;">Estado</th>
+            <th style="padding: 0.8rem;">Prioridad</th>
+            <th style="padding: 0.8rem;">SLA</th>
             <th style="padding: 0.8rem;">Acción</th>
           </tr>
         </thead>
@@ -177,12 +315,32 @@
           <tr style="border-bottom: 1px solid var(--border);">
             <td style="padding: 0.8rem;">
               <strong>{{ s.user.get_full_name }}</strong><br>
-              <span style="font-size: 0.75rem; color: var(--text-3)">{{ s.case.title }}</span>
+              <span style="font-size: 0.7rem; color: var(--text-3)">{{ s.started_at|date:"d/m/Y" }}</span>
             </td>
-            <td style="padding: 0.8rem; color: var(--text-2)">{{ s.started_at|date:"d M, H:i" }}</td>
-            <td style="padding: 0.8rem;"><span class="status-badge status-{{ s.status }}">{{ s.get_status_display }}</span></td>
             <td style="padding: 0.8rem;">
-              <a href="{% url 'mae_review' s.id %}" class="btn-ghost" style="padding: 0.2rem 0.5rem;">Ver respuestas</a>
+              <span style="font-size: 0.85rem;">{{ s.case.title|truncatechars:25 }}</span><br>
+              <span style="font-size: 0.7rem; color: var(--text-3)">{{ s.case.get_category_display }} · {{ s.case.get_difficulty_display }}</span>
+            </td>
+            <td style="padding: 0.8rem;">
+              <span class="status-badge" style="background:{% if s.status == 'nuevo' %}rgba(148,163,184,.1);color:var(--text-2){% elif s.status == 'en_progreso' %}rgba(37,99,235,.1);color:var(--accent){% elif s.status == 'completado' %}rgba(5,150,105,.1);color:var(--accent-green){% elif s.status == 'en_validacion' %}rgba(99,102,241,.1);color:var(--accent-2){% elif s.status == 'observado' %}rgba(217,119,6,.1);color:var(--accent-orange){% elif s.status == 'corregido' %}rgba(5,150,105,.1);color:var(--accent-green){% elif s.status == 'escalado' %}rgba(239,68,68,.1);color:#ef4444{% elif s.status == 'cerrado' %}rgba(148,163,184,.1);color:var(--text-2){% else %}rgba(148,163,184,.1);color:var(--text-2){% endif %}">{{ s.get_status_display }}</span>
+            </td>
+            <td style="padding: 0.8rem;">
+              <span style="font-size: .7rem;font-weight:600;padding:.15rem .4rem;border-radius:4px;{% if s.priority == 'alta' %}background:rgba(239,68,68,.1);color:#ef4444{% elif s.priority == 'media' %}background:rgba(217,119,6,.1);color:var(--accent-orange){% else %}background:rgba(148,163,184,.1);color:var(--text-2){% endif %}">{{ s.get_priority_display }}</span>
+            </td>
+            <td style="padding: 0.8rem;">
+              {% if s.sla_deadline %}
+                {% if s.sla_breached or s.is_overdue %}
+                <span style="font-size:.75rem;color:#ef4444;font-weight:600">⏰ Vencido</span>
+                {% else %}
+                <span class="sla-countdown" data-deadline="{{ s.sla_deadline|date:'c' }}" style="font-size:.75rem;color:var(--accent-green)">{{ s.sla_hours_remaining }}h restantes</span>
+                {% endif %}
+              {% else %}
+              <span style="font-size:.75rem;color:var(--text-3)">—</span>
+              {% endif %}
+            </td>
+            <td style="padding: 0.8rem;">
+              <a href="{% url 'case_detail' s.id %}{% if filter_qs %}?{{ filter_qs }}{% endif %}" class="btn-ghost" style="padding: 0.2rem 0.5rem;font-size:.75rem">📋 Expediente</a>
+              <a href="{% url 'mae_review' s.id %}{% if filter_qs %}?{{ filter_qs }}{% endif %}" class="btn-ghost" style="padding: 0.2rem 0.5rem;font-size:.75rem">Revisar</a>
             </td>
           </tr>
           {% endfor %}
@@ -326,7 +484,7 @@
             </td>
             <td>
               <a href="{% url 'export_json' s.id %}" class="btn-ghost" style="font-size:.7rem;padding:.15rem .4rem">JSON</a>
-              <a href="{% url 'mae_review' s.id %}" class="btn-ghost" style="font-size:.7rem;padding:.15rem .4rem">Revisar</a>
+              <a href="{% url 'mae_review' s.id %}{% if filter_qs %}?{{ filter_qs }}{% endif %}" class="btn-ghost" style="font-size:.7rem;padding:.15rem .4rem">Revisar</a>
             </td>
           </tr>
           {% endfor %}
@@ -335,6 +493,51 @@
     </div>
   </div>
   {% endif %}
+
+  {# ── Serie temporal y Segmentación ── #}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-top:1.5rem">
+    {% if daily_metrics %}
+    <div class="card">
+      <h3>📅 Serie temporal — Últimos 7 días</h3>
+      <p style="font-size:.75rem;color:var(--text-3);margin-bottom:.5rem">Tiempo promedio de respuesta por día (segundos)</p>
+      <div class="metrics-table-wrap">
+        <table class="metrics-table">
+          <thead><tr><th>Día</th><th>Promedio</th><th>Mensajes</th></tr></thead>
+          <tbody>
+            {% for d in daily_metrics %}
+            <tr>
+              <td>{{ d.day }}</td>
+              <td><strong>{{ d.avg_response }}s</strong></td>
+              <td>{{ d.count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if category_metrics %}
+    <div class="card">
+      <h3>📊 Segmentación por categoría</h3>
+      <p style="font-size:.75rem;color:var(--text-3);margin-bottom:.5rem">Tiempo promedio de respuesta por tipo de caso</p>
+      <div class="metrics-table-wrap">
+        <table class="metrics-table">
+          <thead><tr><th>Categoría</th><th>Promedio</th><th>Mensajes</th></tr></thead>
+          <tbody>
+            {% for c in category_metrics %}
+            <tr>
+              <td>{{ c.label }}</td>
+              <td><strong>{{ c.avg_response }}s</strong></td>
+              <td>{{ c.count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+  </div>
 
   {# ── Sesiones Abandonadas ── #}
   {% if abandoned_sessions %}
@@ -351,7 +554,32 @@
             {% if s.abandonment_reason %}· {{ s.get_abandonment_reason_display }}{% endif %}
           </span>
         </div>
-        <a href="{% url 'mae_review' s.id %}" class="btn-secondary" style="font-size:.78rem;padding:.3rem .7rem">Revisar</a>
+        <a href="{% url 'mae_review' s.id %}{% if filter_qs %}?{{ filter_qs }}{% endif %}" class="btn-secondary" style="font-size:.78rem;padding:.3rem .7rem">Revisar</a>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {# ── Sesiones Escaladas ── #}
+  {% if escalated_sessions %}
+  <div id="mae-escalated" class="card card-wide" style="margin-top: 1.5rem;border-left:3px solid var(--accent-orange)">
+    <h3>⚠️ Casos Escalados ({{ escalated_sessions|length }})</h3>
+    <p style="font-size:.85rem;color:var(--text-2);margin-top:.3rem">Sesiones que requieren atención de un Docente Tutor superior.</p>
+    <ul class="session-list" style="margin-top:.8rem">
+      {% for s in escalated_sessions %}
+      <li class="session-item">
+        <div>
+          <span class="session-title">{{ s.user.get_full_name }} — {{ s.case.title }}</span>
+          <span class="session-meta">
+            Escalado · {{ s.started_at|date:"d/m/Y H:i" }}
+            {% if s.mae %}· Asignado a: {{ s.mae.get_full_name }}{% endif %}
+          </span>
+        </div>
+        <div style="display:flex;gap:.4rem">
+          <a href="{% url 'case_detail' s.id %}{% if filter_qs %}?{{ filter_qs }}{% endif %}" class="btn-ghost" style="font-size:.78rem;padding:.3rem .5rem">📋 Expediente</a>
+          <a href="{% url 'mae_review' s.id %}{% if filter_qs %}?{{ filter_qs }}{% endif %}" class="btn-secondary" style="font-size:.78rem;padding:.3rem .7rem">Revisar</a>
+        </div>
       </li>
       {% endfor %}
     </ul>
@@ -363,7 +591,7 @@
     <h3>📥 Exportación de datos</h3>
     <p style="font-size:.85rem;color:var(--text-2);margin-top:.3rem">Formatos para análisis externo.</p>
     <div style="display:flex;gap:1rem;margin-top:1rem;flex-wrap:wrap">
-      <a href="{% url 'export_csv' %}" class="btn-primary">📊 Exportar CSV (SPSS)</a>
+      <a href="{% url 'export_csv' %}{% if filter_qs %}?{{ filter_qs }}{% endif %}" class="btn-primary">📊 Exportar CSV (SPSS)</a>
     </div>
     <p style="font-size:.75rem;color:var(--text-3);margin-top:.6rem">
       El CSV contiene matriz de telemetría paramétrica. Usa el botón JSON en cada sesión para exportar el corpus completo (Atlas.ti).
@@ -376,10 +604,10 @@
   <div class="stats-row stats-row-lg">
     <div class="stat-card"><span class="stat-value">{{ total_users }}</span><span class="stat-label">Usuarios totales</span></div>
     <div class="stat-card"><span class="stat-value">{{ total_managers }}</span><span class="stat-label">Gerentes</span></div>
-    <div class="stat-card"><span class="stat-value">{{ total_maes }}</span><span class="stat-label">MAEs</span></div>
+    <div class="stat-card"><span class="stat-value">{{ total_maes }}</span><span class="stat-label">Docentes Tutores</span></div>
     <div class="stat-card"><span class="stat-value">{{ total_cases }}</span><span class="stat-label">Casos</span></div>
     <div class="stat-card"><span class="stat-value">{{ active_sessions }}</span><span class="stat-label">Sesiones activas</span></div>
-    <div class="stat-card"><span class="stat-value">{{ pending_reviews }}</span><span class="stat-label">Pendientes MAE</span></div>
+    <div class="stat-card"><span class="stat-value">{{ pending_reviews }}</span><span class="stat-label">Pendientes Docente Tutor</span></div>
   </div>
 
   <div class="dashboard-grid" style="margin-top:1.5rem">
@@ -426,4 +654,34 @@
   {% endif %}
 
 </div>
+<script>
+(function() {
+  const counters = document.querySelectorAll('.sla-countdown');
+  if (!counters.length) return;
+
+  function updateAll() {
+    const now = new Date().getTime();
+    counters.forEach(function(el) {
+      const deadline = new Date(el.dataset.deadline).getTime();
+      const diff = deadline - now;
+      if (diff <= 0) {
+        el.innerHTML = '<span style="color:#ef4444;font-weight:600">⏰ Vencido</span>';
+        el.classList.remove('sla-countdown');
+        return;
+      }
+      const hours = Math.floor(diff / 3600000);
+      const minutes = Math.floor((diff % 3600000) / 60000);
+      if (hours > 0) {
+        el.textContent = hours + 'h ' + minutes + 'm restantes';
+      } else {
+        el.textContent = minutes + 'm restantes';
+        el.style.color = '#f97316';
+      }
+    });
+  }
+
+  updateAll();
+  setInterval(updateAll, 30000);
+})();
+</script>
 {% endblock %}
