@@ -28,6 +28,11 @@
       </div>
       {% endif %}
 
+      <div id="conn-status" style="margin-top:.5rem;padding:.6rem .8rem;background:var(--bg-3);border-radius:8px;font-size:.8rem">
+        <span id="conn-dot" style="color:var(--text-3)">●</span>
+        <span id="conn-text">Estado de conexión: sin probar</span>
+      </div>
+
       <form method="POST" style="margin-top:1rem" id="api-config-form">
         {% csrf_token %}
         <input type="hidden" name="save_api_config" value="1">
@@ -63,6 +68,21 @@
 
         <button type="submit" class="btn-primary">Guardar configuracion</button>
       </form>
+    </div>
+
+    <div class="card" style="grid-column:1/-1">
+      <h3>Probar conectividad</h3>
+      <p style="font-size:.8rem;color:var(--text-3);margin-top:.2rem">
+        Envía un mensaje de prueba al proveedor <strong>guardado actualmente</strong> (o al fallback de variables de
+        entorno si no hay ninguno guardado) para validar que la conexión funciona antes de usarla con los gerentes.
+      </p>
+
+      <div id="testChatMessages" class="chat-messages" style="height:260px;border:1px solid var(--border);border-radius:8px;margin-top:.8rem;padding:1rem"></div>
+
+      <div class="chat-input-wrapper" style="margin-top:.8rem;display:flex;gap:.5rem">
+        <textarea id="testMessageInput" class="chat-textarea" rows="1" placeholder="Escribe un mensaje de prueba, ej: 'hola, ¿me recibes?'" style="flex:1"></textarea>
+        <button id="testSendBtn" class="btn-primary" type="button">Enviar</button>
+      </div>
     </div>
   </div>
 </div>
@@ -150,6 +170,80 @@ function onProviderChange() {
 // Run on page load to set initial state
 document.addEventListener('DOMContentLoaded', function() {
   onProviderChange();
+});
+
+// ── Chatbox de prueba de conectividad ────────────────────────────────────────
+const TEST_URL = "{% url 'test_ai_connection' %}";
+const CSRF_TOKEN = "{{ csrf_token }}";
+const testChatMessages = document.getElementById('testChatMessages');
+const testMessageInput = document.getElementById('testMessageInput');
+const testSendBtn = document.getElementById('testSendBtn');
+const connDot = document.getElementById('conn-dot');
+const connText = document.getElementById('conn-text');
+
+function formatTestTime(d) { return d.toLocaleTimeString('es-MX', {hour:'2-digit', minute:'2-digit'}); }
+
+function appendTestMessage(role, content, isError) {
+  const div = document.createElement('div');
+  div.className = `message message-${role}${isError ? ' message-error' : ''}`;
+  const bubble = document.createElement('div');
+  bubble.className = 'message-bubble';
+  bubble.textContent = content;
+  const time = document.createElement('span');
+  time.className = 'message-time';
+  time.textContent = formatTestTime(new Date());
+  div.appendChild(bubble);
+  div.appendChild(time);
+  testChatMessages.appendChild(div);
+  testChatMessages.scrollTop = testChatMessages.scrollHeight;
+}
+
+function setConnStatus(state, label) {
+  const colors = { ok: 'var(--accent-green)', error: '#ef4444', pending: 'var(--text-3)' };
+  connDot.style.color = colors[state] || colors.pending;
+  connText.textContent = label;
+}
+
+async function sendTestMessage() {
+  const text = testMessageInput.value.trim();
+  if (!text) return;
+  testMessageInput.value = '';
+  appendTestMessage('user', text);
+  testSendBtn.disabled = true;
+  setConnStatus('pending', 'Probando conexión...');
+
+  try {
+    const res = await fetch(TEST_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+      body: JSON.stringify({message: text}),
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      appendTestMessage('system', data.error, true);
+      setConnStatus('error', data.error);
+      return;
+    }
+
+    if (data.success) {
+      appendTestMessage('assistant', data.response);
+      setConnStatus('ok', `Conectado — ${data.provider} / ${data.model} (${data.latency_ms} ms)`);
+    } else {
+      appendTestMessage('system', data.error || 'No se pudo conectar.', true);
+      setConnStatus('error', `Error — ${data.provider} / ${data.model}: ${data.error || 'sin detalle'}`);
+    }
+  } catch (e) {
+    appendTestMessage('system', 'Error de red al intentar la prueba.', true);
+    setConnStatus('error', 'Error de red al intentar la prueba.');
+  } finally {
+    testSendBtn.disabled = false;
+  }
+}
+
+testSendBtn?.addEventListener('click', sendTestMessage);
+testMessageInput?.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendTestMessage(); }
 });
 </script>
 {% endblock %}

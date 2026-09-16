@@ -9,6 +9,7 @@ from .ai_engine import (
     get_ai_response, get_diagnosis_response, get_ia_error_message,
     notify_admin_ia_error, DIAGNOSIS_QUESTIONS, FINISH_TRIGGERS,
     validate_user_message, _should_advance_phase, PHASE_LABELS,
+    test_connection,
 )
 
 
@@ -373,6 +374,22 @@ def api_config(request):
         return redirect('api_config')
 
     return render(request, 'cases/api_config.html', {'ai_config': ai_config})
+
+
+@login_required
+@require_POST
+def test_ai_connection(request):
+    """Chatbox de prueba: valida la conectividad con el proveedor de IA activo."""
+    if not request.user.is_admin_role:
+        return JsonResponse({'error': 'No autorizado.'}, status=403)
+
+    data = json.loads(request.body)
+    message = data.get('message', '').strip()
+    if not message:
+        return JsonResponse({'error': 'Escribe un mensaje de prueba.'}, status=400)
+
+    result = test_connection(message)
+    return JsonResponse(result)
 
 
 # ── Diagnóstico ────────────────────────────────────────────────────────────────

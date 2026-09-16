@@ -102,8 +102,10 @@ const messageInput = document.getElementById('messageInput');
 const sendBtn = document.getElementById('sendBtn');
 const LAST_AI_TIME = "{{ last_ai_timestamp }}";
 let lastAiTimestamp = LAST_AI_TIME ? new Date(LAST_AI_TIME) : null;
-// Timestamp exacto en que la IA terminó de renderizar (para latency_reading_ms)
-let lastAiRenderTime = lastAiTimestamp ? lastAiTimestamp.getTime() : Date.now();
+// Referencia en la misma base de tiempo que performance.now() (usada en onFirstKeydown).
+// No se puede reconstruir el performance.now() de una carga de página anterior, así que
+// al cargar la página se usa "ahora" como referencia para medir la primera pulsación.
+let lastAiRenderTime = performance.now();
 
 let activeQuickOption = '';
 

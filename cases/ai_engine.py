@@ -8,6 +8,7 @@ import json
 import random
 import logging
 import re
+import time
 import urllib.request
 import urllib.error
 from django.conf import settings
@@ -275,29 +276,43 @@ def _ai_available() -> bool:
     return bool(getattr(settings, 'GEMINI_API_KEY', '').strip())
 
 
+def _resolve_connection():
+    """Resuelve (api_url, api_key, provider, model) desde la BD o el fallback de settings.
+    Para Gemini, siempre arma la URL completa (modelo + :generateContent + ?key=),
+    sin importar si el endpoint base vino de la BD o del fallback."""
+    config = _get_active_config()
+
+    if config and config.api_url and config.api_key:
+        api_key = config.api_key
+        provider = config.provider
+        api_url = config.api_url
+        if provider == 'gemini' or 'generativelanguage' in api_url:
+            model = config.model_name or getattr(settings, 'GEMINI_MODEL', 'gemini-2.5-flash')
+        else:
+            model = config.model_name or 'default'
+    else:
+        api_key = settings.GEMINI_API_KEY.strip()
+        model = getattr(settings, 'GEMINI_MODEL', 'gemini-2.5-flash')
+        api_url = "https://generativelanguage.googleapis.com/v1beta/models/"
+        provider = 'gemini'
+
+    if provider == 'gemini' or 'generativelanguage' in api_url:
+        base = api_url.split(':generateContent')[0].rstrip('/')
+        if base.endswith('/models'):
+            base = f"{base}/{model}"
+        api_url = f"{base}:generateContent?key={api_key}"
+        provider = 'gemini'
+
+    return api_url, api_key, provider, model
+
+
 def _call_ai_api(system_prompt: str, user_prompt: str) -> str:
     """
     Llama a la API de IA configurada (BD o fallback Gemini de settings).
     Detecta automáticamente el formato (Gemini vs OpenAI-compatible).
     Lanza excepción si falla — el llamador decide el fallback.
     """
-    config = _get_active_config()
-
-    if config and config.api_url and config.api_key:
-        api_url = config.api_url
-        api_key = config.api_key
-        provider = config.provider
-        model = config.model_name or 'default'
-    else:
-        # Fallback a settings (Gemini)
-        api_key = settings.GEMINI_API_KEY.strip()
-        model = getattr(settings, 'GEMINI_MODEL', 'gemini-3.5-flash')
-        api_url = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model}:generateContent?key={api_key}"
-        )
-        provider = 'gemini'
-
+    api_url, api_key, provider, model = _resolve_connection()
     return _call_api_internal(api_url, api_key, provider, model, system_prompt, user_prompt)
 
 
@@ -365,6 +380,65 @@ def _call_openai_format(url: str, api_key: str, model: str,
     if not text:
         raise RuntimeError("API devolvió respuesta vacía.")
     return text
+
+
+def _describe_api_error(e: Exception) -> str:
+    """Extrae un mensaje de error legible de una excepción de red/API,
+    incluyendo el cuerpo de la respuesta HTTP cuando está disponible."""
+    if isinstance(e, urllib.error.HTTPError):
+        try:
+            body = e.read().decode('utf-8')
+            data = json.loads(body)
+            msg = data.get('error', {}).get('message') or body
+        except Exception:
+            msg = str(e)
+        return f"HTTP {e.code}: {msg}"
+    if isinstance(e, urllib.error.URLError):
+        return f"No se pudo conectar con el proveedor: {e.reason}"
+    return str(e)
+
+
+def test_connection(user_message: str) -> dict:
+    """
+    Prueba la conectividad con el proveedor de IA activo (BD o fallback de settings).
+    Usado por el panel de Configuración de API para validar la conexión con un chatbox
+    de prueba antes de confiar en ella para las sesiones reales.
+    Retorna dict: {success, response|error, provider, model, latency_ms}.
+    """
+    api_url, api_key, provider, model = _resolve_connection()
+
+    if not api_key:
+        return {
+            'success': False,
+            'error': 'No hay una API Key configurada (ni en BD ni en variables de entorno).',
+            'provider': provider,
+            'model': model,
+            'latency_ms': 0,
+        }
+
+    system = (
+        "Eres un endpoint de prueba de conectividad para un panel de administración. "
+        "Responde en una sola frase breve, en español, confirmando que recibiste el mensaje."
+    )
+    started = time.monotonic()
+    try:
+        text = _call_api_internal(api_url, api_key, provider, model, system, user_message)
+        return {
+            'success': True,
+            'response': text,
+            'provider': provider,
+            'model': model,
+            'latency_ms': round((time.monotonic() - started) * 1000),
+        }
+    except Exception as e:
+        logger.error(f"Prueba de conexión IA falló: {e}")
+        return {
+            'success': False,
+            'error': _describe_api_error(e),
+            'provider': provider,
+            'model': model,
+            'latency_ms': round((time.monotonic() - started) * 1000),
+        }
 
 
 # ── Diagnóstico ───────────────────────────────────────────────────────────────
@@ -439,29 +513,34 @@ def _build_case_history(session, limit: int = 12) -> list[dict]:
 
 def _call_ai_api_with_history(system_prompt: str, history: list[dict], new_user_text: str) -> str:
     """Variante con historial multi-turno."""
-    config = _get_active_config()
-
-    if config and config.api_url and config.api_key:
-        api_url = config.api_url
-        api_key = config.api_key
-        provider = config.provider
-        model = config.model_name or 'default'
-    else:
-        api_key = settings.GEMINI_API_KEY.strip()
-        model = getattr(settings, 'GEMINI_MODEL', 'gemini-3.5-flash')
-        api_url = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model}:generateContent?key={api_key}"
-        )
-        provider = 'gemini'
+    api_url, api_key, provider, model = _resolve_connection()
 
     if provider == 'gemini' or 'generativelanguage' in api_url:
         contents = list(history)
         contents.append({"role": "user", "parts": [{"text": new_user_text}]})
+        generation_config = {
+            "temperature": 0.7,
+            "maxOutputTokens": 2048,
+            "responseMimeType": "application/json",
+            "responseSchema": {
+                "type": "OBJECT",
+                "properties": {
+                    "clasificacion_variable": {"type": "STRING", "enum": ["Ac", "Sm", "Ts"]},
+                    "justificacion_oculta": {"type": "STRING"},
+                    "respuesta_simulador": {"type": "STRING"},
+                },
+                "required": ["clasificacion_variable", "respuesta_simulador"],
+            },
+        }
+        # Los modelos "flash"/"lite" permiten desactivar el thinking (que si no,
+        # consume el presupuesto de maxOutputTokens y trunca la respuesta visible).
+        # "pro" no soporta budget 0, así que ahí lo dejamos con el valor por defecto.
+        if 'pro' not in model.lower():
+            generation_config["thinkingConfig"] = {"thinkingBudget": 0}
         payload = {
             "system_instruction": {"parts": [{"text": system_prompt}]},
             "contents": contents,
-            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 500},
+            "generationConfig": generation_config,
         }
         req = urllib.request.Request(
             api_url, data=json.dumps(payload).encode('utf-8'),
@@ -588,9 +667,13 @@ def _build_phase_prompt(case, session, quick_reply_option='', quick_reply_reason
 
 
 def _parse_ai_json(raw_text: str) -> dict:
-    """Intenta parsear la respuesta JSON del LLM. Si falla, devuelve dict con fallback."""
+    """Parsea la respuesta JSON del LLM.
+    Si no se puede extraer un 'respuesta_simulador' válido (JSON truncado, mal formado,
+    o el modelo no siguió el formato), lanza ValueError — el llamador debe usar el
+    fallback simulado en vez de mostrarle al gerente el JSON crudo o la
+    justificación oculta, que nunca deben llegar a la pantalla del usuario."""
     text = raw_text.strip()
-    # Intentar extraer JSON incluso si viene con markdown ```json ... ```
+    # Extraer JSON incluso si viene envuelto en markdown ```json ... ```
     if text.startswith('```'):
         lines = text.split('\n')
         text = '\n'.join(lines[1:]) if len(lines) > 1 else text
@@ -599,26 +682,20 @@ def _parse_ai_json(raw_text: str) -> dict:
         text = text.strip()
     try:
         data = json.loads(text)
-        if 'clasificacion_variable' in data and 'respuesta_simulador' in data:
+        if data.get('respuesta_simulador'):
             return data
     except json.JSONDecodeError:
         pass
-    # Fallback: extraer con regex
-    import re as _re
-    match = _re.search(r'\{[^{}]*"clasificacion_variable"[^{}]*"respuesta_simulador"[^{}]*\}', raw_text, _re.DOTALL)
+    # Fallback: extraer un objeto JSON completo con regex (por si hay texto extra alrededor)
+    match = re.search(r'\{[^{}]*"clasificacion_variable"[^{}]*"respuesta_simulador"[^{}]*\}', raw_text, re.DOTALL)
     if match:
         try:
             data = json.loads(match.group())
-            if 'clasificacion_variable' in data and 'respuesta_simulador' in data:
+            if data.get('respuesta_simulador'):
                 return data
         except json.JSONDecodeError:
             pass
-    # Fallback total: usar el texto crudo como respuesta
-    return {
-        'clasificacion_variable': None,
-        'justificacion_oculta': '',
-        'respuesta_simulador': raw_text,
-    }
+    raise ValueError(f"No se pudo extraer 'respuesta_simulador' de la respuesta del LLM (posible truncamiento): {raw_text[:200]!r}")
 
 
 def get_ai_response(user_message: str, session, case, quick_reply_option: str = '', quick_reply_reason: str = '') -> dict:

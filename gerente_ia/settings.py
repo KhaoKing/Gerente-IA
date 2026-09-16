@@ -86,7 +86,7 @@ import os
 # Gemini API — motor de IA (plan gratuito con rate limits)
 # Obtén tu API key gratis en: https://aistudio.google.com/apikey
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
-GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-3.5-flash')
+GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
 
 # Email para notificaciones al admin cuando la IA falla
 ADMIN_EMAIL = 'admin@gerenteIA.com'
