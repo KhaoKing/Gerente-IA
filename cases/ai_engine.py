@@ -306,6 +306,26 @@ def _resolve_connection():
     return api_url, api_key, provider, model
 
 
+def _extract_usage(data: dict, provider: str) -> dict:
+    """Normaliza los metadatos de consumo de tokens de la respuesta cruda de la API,
+    para poder loguear/mostrar el consumo real en vez de estimarlo a ojo."""
+    if provider == 'gemini':
+        u = data.get('usageMetadata', {}) or {}
+        return {
+            'input_tokens': u.get('promptTokenCount', 0),
+            'output_tokens': u.get('candidatesTokenCount', 0),
+            'thinking_tokens': u.get('thoughtsTokenCount', 0),
+            'total_tokens': u.get('totalTokenCount', 0),
+        }
+    u = data.get('usage', {}) or {}
+    return {
+        'input_tokens': u.get('prompt_tokens', 0),
+        'output_tokens': u.get('completion_tokens', 0),
+        'thinking_tokens': 0,
+        'total_tokens': u.get('total_tokens', 0),
+    }
+
+
 def _call_ai_api(system_prompt: str, user_prompt: str) -> str:
     """
     Llama a la API de IA configurada (BD o fallback Gemini de settings).
@@ -313,12 +333,14 @@ def _call_ai_api(system_prompt: str, user_prompt: str) -> str:
     Lanza excepción si falla — el llamador decide el fallback.
     """
     api_url, api_key, provider, model = _resolve_connection()
-    return _call_api_internal(api_url, api_key, provider, model, system_prompt, user_prompt)
+    text, usage = _call_api_internal(api_url, api_key, provider, model, system_prompt, user_prompt)
+    logger.info(f"[IA] {provider}/{model} tokens: {usage}")
+    return text
 
 
 def _call_api_internal(api_url: str, api_key: str, provider: str, model: str,
-                       system_prompt: str, user_prompt: str) -> str:
-    """Ejecuta la llamada HTTP a la API según el proveedor."""
+                       system_prompt: str, user_prompt: str) -> tuple[str, dict]:
+    """Ejecuta la llamada HTTP a la API según el proveedor. Retorna (texto, uso_tokens)."""
     if provider == 'gemini' or 'generativelanguage' in api_url:
         return _call_gemini_format(api_url, system_prompt, user_prompt)
     else:
@@ -326,7 +348,7 @@ def _call_api_internal(api_url: str, api_key: str, provider: str, model: str,
         return _call_openai_format(api_url, api_key, model, system_prompt, user_prompt)
 
 
-def _call_gemini_format(url: str, system_prompt: str, user_prompt: str) -> str:
+def _call_gemini_format(url: str, system_prompt: str, user_prompt: str) -> tuple[str, dict]:
     """Formato Gemini: system_instruction + contents."""
     payload = {
         "system_instruction": {"parts": [{"text": system_prompt}]},
@@ -347,11 +369,11 @@ def _call_gemini_format(url: str, system_prompt: str, user_prompt: str) -> str:
     text = ''.join(p.get('text', '') for p in parts).strip()
     if not text:
         raise RuntimeError("API devolvió respuesta vacía.")
-    return text
+    return text, _extract_usage(data, 'gemini')
 
 
 def _call_openai_format(url: str, api_key: str, model: str,
-                        system_prompt: str, user_prompt: str) -> str:
+                        system_prompt: str, user_prompt: str) -> tuple[str, dict]:
     """Formato OpenAI-compatible: messages array con roles."""
     messages = [
         {"role": "system", "content": system_prompt},
@@ -379,7 +401,7 @@ def _call_openai_format(url: str, api_key: str, model: str,
     text = choices[0].get('message', {}).get('content', '').strip()
     if not text:
         raise RuntimeError("API devolvió respuesta vacía.")
-    return text
+    return text, _extract_usage(data, 'openai')
 
 
 def _describe_api_error(e: Exception) -> str:
@@ -403,7 +425,7 @@ def test_connection(user_message: str) -> dict:
     Prueba la conectividad con el proveedor de IA activo (BD o fallback de settings).
     Usado por el panel de Configuración de API para validar la conexión con un chatbox
     de prueba antes de confiar en ella para las sesiones reales.
-    Retorna dict: {success, response|error, provider, model, latency_ms}.
+    Retorna dict: {success, response|error, provider, model, latency_ms, usage}.
     """
     api_url, api_key, provider, model = _resolve_connection()
 
@@ -422,13 +444,14 @@ def test_connection(user_message: str) -> dict:
     )
     started = time.monotonic()
     try:
-        text = _call_api_internal(api_url, api_key, provider, model, system, user_message)
+        text, usage = _call_api_internal(api_url, api_key, provider, model, system, user_message)
         return {
             'success': True,
             'response': text,
             'provider': provider,
             'model': model,
             'latency_ms': round((time.monotonic() - started) * 1000),
+            'usage': usage,
         }
     except Exception as e:
         logger.error(f"Prueba de conexión IA falló: {e}")
@@ -500,10 +523,14 @@ def get_diagnosis_response(question_number: int, user_answer: str, is_last: bool
 
 # ── Chatbox de casos ──────────────────────────────────────────────────────────
 
-def _build_case_history(session, limit: int = 12) -> list[dict]:
-    """Construye historial de mensajes para enviar como contexto a la IA."""
-    msgs = list(session.messages.order_by('-created_at')[:limit])
-    msgs.reverse()
+def _build_case_history(session) -> list[dict]:
+    """Construye historial de mensajes para enviar como contexto a la IA.
+    Se manda la sesión completa (sin recorte): el contexto de un caso nunca debe
+    perderse a mitad de conversación, y el contexto de este proyecto (casos de
+    3 fases) está muy por debajo de la ventana de contexto de los modelos actuales.
+    Si algún día las sesiones crecen mucho más, este es el punto donde insertar
+    un resumen incremental en vez de mandar todo el historial crudo."""
+    msgs = list(session.messages.order_by('created_at'))
     history = []
     for m in msgs:
         role = "user" if m.role == "user" else "model"
@@ -556,6 +583,8 @@ def _call_ai_api_with_history(system_prompt: str, history: list[dict], new_user_
         text = ''.join(p.get('text', '') for p in parts).strip()
         if not text:
             raise RuntimeError("API devolvió respuesta vacía.")
+        usage = _extract_usage(data, 'gemini')
+        logger.info(f"[IA][case-chat] gemini/{model} tokens: {usage} (historial: {len(history)} mensajes)")
         return text
     else:
         messages = [{"role": "system", "content": system_prompt}]
@@ -586,6 +615,8 @@ def _call_ai_api_with_history(system_prompt: str, history: list[dict], new_user_
         text = choices[0].get('message', {}).get('content', '').strip()
         if not text:
             raise RuntimeError("API devolvió respuesta vacía.")
+        usage = _extract_usage(data, 'openai')
+        logger.info(f"[IA][case-chat] {provider}/{model} tokens: {usage} (historial: {len(history)} mensajes)")
         return text
 
 
@@ -831,7 +862,7 @@ def generate_final_feedback(session) -> str:
 
     if _ai_available():
         try:
-            history = _build_case_history(session, limit=30)
+            history = _build_case_history(session)
             transcript = "\n".join(
                 f"{('Gerente' if h['role']=='user' else 'MAE')}: {h['parts'][0]['text']}"
                 for h in history

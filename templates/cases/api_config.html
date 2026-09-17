@@ -228,7 +228,9 @@ async function sendTestMessage() {
 
     if (data.success) {
       appendTestMessage('assistant', data.response);
-      setConnStatus('ok', `Conectado — ${data.provider} / ${data.model} (${data.latency_ms} ms)`);
+      const u = data.usage || {};
+      const tokenInfo = u.total_tokens ? ` — ${u.input_tokens} in / ${u.output_tokens} out / ${u.total_tokens} total tokens` : '';
+      setConnStatus('ok', `Conectado — ${data.provider} / ${data.model} (${data.latency_ms} ms)${tokenInfo}`);
     } else {
       appendTestMessage('system', data.error || 'No se pudo conectar.', true);
       setConnStatus('error', `Error — ${data.provider} / ${data.model}: ${data.error || 'sin detalle'}`);

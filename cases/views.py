@@ -344,8 +344,9 @@ def dashboard(request):
 
 @login_required
 def api_config(request):
-    from django.contrib.auth.decorators import user_passes_test
-    if not request.user.is_admin_role:
+    # Solo superusuario (no cualquier rol 'admin'): la configuración de IA y el
+    # consumo de tokens quedan ocultos incluso para una cuenta admin de demostración.
+    if not request.user.is_superuser:
         return redirect('dashboard')
 
     ai_config = AIConfiguration.get_active()
@@ -380,7 +381,7 @@ def api_config(request):
 @require_POST
 def test_ai_connection(request):
     """Chatbox de prueba: valida la conectividad con el proveedor de IA activo."""
-    if not request.user.is_admin_role:
+    if not request.user.is_superuser:
         return JsonResponse({'error': 'No autorizado.'}, status=403)
 
     data = json.loads(request.body)

@@ -49,6 +49,11 @@
             {% if msg.backspace_count %}<span style="color:var(--text-3)">Backspaces: {{ msg.backspace_count }}</span>{% endif %}
           </div>
           <p>{{ msg.content|linebreaksbr }}</p>
+          {% if msg.ai_justification %}
+          <p style="margin-top:.4rem;padding:.5rem .7rem;background:var(--bg-3);border-left:3px solid var(--accent);border-radius:6px;font-size:.78rem;color:var(--text-2)">
+            🔒 <strong>Justificación oculta de la IA:</strong> {{ msg.ai_justification }}
+          </p>
+          {% endif %}
         </div>
         {% endif %}
         {% empty %}

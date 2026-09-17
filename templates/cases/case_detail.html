@@ -136,6 +136,11 @@
             {% if msg.classification_variable %}<span style="color:{% if msg.classification_variable == 'Ts' %}#f87171{% elif msg.classification_variable == 'Sm' %}var(--accent){% else %}var(--accent-green){% endif %};font-weight:600">Clasificación: {{ msg.classification_variable }}</span>{% endif %}
           </div>
           <p>{{ msg.content|linebreaksbr }}</p>
+          {% if msg.ai_justification %}
+          <p style="margin-top:.4rem;padding:.5rem .7rem;background:var(--bg-3);border-left:3px solid var(--accent);border-radius:6px;font-size:.78rem;color:var(--text-2)">
+            🔒 <strong>Justificación oculta de la IA:</strong> {{ msg.ai_justification }}
+          </p>
+          {% endif %}
         </div>
         {% endif %}
         {% empty %}

@@ -612,6 +612,7 @@
 
   <div class="dashboard-grid" style="margin-top:1.5rem">
 
+    {% if user.is_superuser %}
     <div class="card" style="grid-column:1/-1">
       <h3>Configuracion de IA</h3>
       <p style="font-size:.85rem;color:var(--text-2);margin-top:.3rem">
@@ -625,6 +626,7 @@
         <a href="{% url 'api_config' %}" class="btn-primary">Configurar API</a>
       </div>
     </div>
+    {% endif %}
 
     <div class="card">
       <h3>Gestión del sistema</h3>
