@@ -82,6 +82,8 @@ class DiagnosisMessage(models.Model):
 
     class Meta:
         ordering = ['created_at']
+        verbose_name = 'Mensaje de Diagnóstico'
+        verbose_name_plural = 'Mensajes de Diagnóstico'
 
 
 # ── Casos gerenciales + chatbox ────────────────────────────────────────────────
