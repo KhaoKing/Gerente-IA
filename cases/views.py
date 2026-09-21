@@ -1216,10 +1216,13 @@ def export_pdf(request):
         avg_pause=Avg('messages__total_pause_seconds'),
     ).order_by('-started_at')
 
-    header = ['Hash', 'Gerente', 'Prom. Respuestas (s)', 'Prom. Pausas (s)', 'AC', 'SM', 'TS', 'Caso']
+    header = [
+        'Hash', 'C\u00f3digo Gerente', 'Prom. Respuestas (s)', 'Prom. Pausas (s)',
+        'AC', 'SM', 'TS', 'Interacciones', 'ID Caso', 'Estatus',
+    ]
     rows = [header]
 
-    total_ac = total_sm = total_ts = 0
+    total_ac = total_sm = total_ts = total_interactions = 0
 
     for s in sessions:
         avg_r = s.avg_response
@@ -1227,16 +1230,19 @@ def export_pdf(request):
         total_ac += s.acumulado_ac
         total_sm += s.acumulado_sm
         total_ts += s.acumulado_ts
+        total_interactions += s.n_interactions
 
         rows.append([
             (s.content_hash[:12] + '\u2026') if s.content_hash else '\u2014',
-            s.user.get_full_name(),
+            f'GE-{s.user_id:03d}',
             f"{avg_r:.1f}" if avg_r is not None else '\u2014',
             f"{avg_p:.1f}" if avg_p is not None else '\u2014',
             str(s.acumulado_ac),
             str(s.acumulado_sm),
             str(s.acumulado_ts),
-            s.case.title,
+            str(s.n_interactions),
+            str(s.case_id),
+            s.get_status_display(),
         ])
 
     # Promedio general ponderado sobre TODOS los mensajes (no el promedio de los
@@ -1254,6 +1260,8 @@ def export_pdf(request):
         str(total_ac),
         str(total_sm),
         str(total_ts),
+        str(total_interactions),
+        '',
         '',
     ]
     rows.append(total_row)
@@ -1275,7 +1283,9 @@ def export_pdf(request):
         Spacer(1, 0.6 * cm),
     ]
 
-    table = Table(rows, repeatRows=1, colWidths=[3.2*cm, 4.5*cm, 3.3*cm, 3.0*cm, 1.6*cm, 1.6*cm, 1.6*cm, 6*cm])
+    table = Table(rows, repeatRows=1, colWidths=[
+        3.2*cm, 2.4*cm, 2.8*cm, 2.6*cm, 1.3*cm, 1.3*cm, 1.3*cm, 2.0*cm, 1.8*cm, 2.6*cm,
+    ])
     table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e293b')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
@@ -1287,7 +1297,7 @@ def export_pdf(request):
         ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor('#f8fafc')]),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('ALIGN', (2, 0), (6, -1), 'CENTER'),
+        ('ALIGN', (2, 0), (9, -1), 'CENTER'),
         ('TOPPADDING', (0, 0), (-1, -1), 4),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
     ]))
@@ -1295,7 +1305,9 @@ def export_pdf(request):
     elements.append(Spacer(1, 0.4 * cm))
     elements.append(Paragraph(
         "<b>TOTAL</b> — Prom. Respuestas / Pausas: promedio general ponderado sobre todos los "
-        "mensajes (no el promedio de los promedios por fila). AC / SM / TS: suma total.",
+        "mensajes (no el promedio de los promedios por fila). AC / SM / TS / Interacciones: "
+        "suma total. <b>Código Gerente</b>: identificador anónimo (GE-XXX), no se muestra "
+        "nombre real. <b>ID Caso</b>: identificador del caso gerencial, no el título.",
         styles['Normal'],
     ))
     doc.build(elements)
