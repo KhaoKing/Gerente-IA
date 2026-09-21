@@ -1,4 +1,5 @@
 import json
+import logging
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
@@ -7,10 +8,12 @@ from django.utils import timezone
 from .models import ManagementCase, CaseSession, ChatMessage, DiagnosisSession, DiagnosisMessage, IAErrorLog, AIConfiguration, CaseAudit
 from .ai_engine import (
     get_ai_response, get_diagnosis_response, get_ia_error_message,
-    notify_admin_ia_error, DIAGNOSIS_QUESTIONS, FINISH_TRIGGERS,
+    notify_admin_ia_error, DIAGNOSIS_QUESTIONS, is_finish_trigger,
     validate_user_message, _should_advance_phase, PHASE_LABELS,
     test_connection,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ── Dashboard ──────────────────────────────────────────────────────────────────
@@ -68,22 +71,44 @@ def dashboard(request):
         date_from = request.GET.get('date_from', '')
         date_to = request.GET.get('date_to', '')
 
-        session_filter = Q()
-        diagnosis_filter = Q()
+        # Piezas de filtro por dimensión — se combinan distinto según la query:
+        # algunas ya fijan su propio status/priority, así que ahí se omite esa pieza
+        # para no auto-anularse con lo que el usuario eligió en el formulario.
+        status_q = Q(status=status_filter) if status_filter else Q()
+        gerente_q = Q(user_id=gerente_filter) if gerente_filter else Q()
+        category_q = Q(case__category=category_filter) if category_filter else Q()
+        priority_q = Q(priority=priority_filter) if priority_filter else Q()
+        date_from_q = Q(started_at__date__gte=date_from) if date_from else Q()
+        date_to_q = Q(started_at__date__lte=date_to) if date_to else Q()
+
+        # Filtro completo (para CaseSession sin status/priority propios ya fijados)
+        session_filter = status_q & gerente_q & category_q & priority_q & date_from_q & date_to_q
+        # Sin status (para listas que ya fijan su propio status, ej. pendientes/abandonadas/escaladas)
+        scope_filter = gerente_q & category_q & priority_q & date_from_q & date_to_q
+        # Sin status ni priority (para KPIs de SLA/críticos que ya fijan priority='alta')
+        kpi_filter = gerente_q & category_q & date_from_q & date_to_q
+
+        # Misma idea pero para queries sobre ChatMessage (los campos van con prefijo session__)
+        msg_filter = Q()
         if status_filter:
-            session_filter &= Q(status=status_filter)
+            msg_filter &= Q(session__status=status_filter)
         if gerente_filter:
-            session_filter &= Q(user_id=gerente_filter)
-            diagnosis_filter &= Q(user_id=gerente_filter)
+            msg_filter &= Q(session__user_id=gerente_filter)
         if category_filter:
-            session_filter &= Q(case__category=category_filter)
+            msg_filter &= Q(session__case__category=category_filter)
         if priority_filter:
-            session_filter &= Q(priority=priority_filter)
+            msg_filter &= Q(session__priority=priority_filter)
         if date_from:
-            session_filter &= Q(started_at__date__gte=date_from)
+            msg_filter &= Q(session__started_at__date__gte=date_from)
+        if date_to:
+            msg_filter &= Q(session__started_at__date__lte=date_to)
+
+        diagnosis_filter = Q()
+        if gerente_filter:
+            diagnosis_filter &= Q(user_id=gerente_filter)
+        if date_from:
             diagnosis_filter &= Q(completed_at__date__gte=date_from)
         if date_to:
-            session_filter &= Q(started_at__date__lte=date_to)
             diagnosis_filter &= Q(completed_at__date__lte=date_to)
 
         # Diagnósticos completados esperando validación del Docente Tutor
@@ -94,17 +119,17 @@ def dashboard(request):
         # Sesiones de caso pendientes de revisión
         pending_reviews = CaseSession.objects.filter(
             status='completado'
-        ).select_related('user', 'case').order_by('-completed_at')
+        ).filter(scope_filter).select_related('user', 'case').order_by('-completed_at')
 
         in_review = CaseSession.objects.filter(
             mae=user, status='en_validacion'
-        ).select_related('user', 'case')
+        ).filter(scope_filter).select_related('user', 'case')
         all_manager_sessions = CaseSession.objects.filter(session_filter).select_related('user', 'case').order_by('-started_at')
 
         managers_list = UserModel.objects.filter(role='gerente').prefetch_related('manager_profile')
 
         # ── Métricas agregadas por gerente (directorio) ──
-        manager_sessions = CaseSession.objects.select_related('user').all()
+        manager_sessions = CaseSession.objects.filter(session_filter).select_related('user')
         manager_data = {}
         for s in manager_sessions:
             uid = s.user_id
@@ -148,7 +173,7 @@ def dashboard(request):
         # ── Métricas de tiempos de respuesta ──
         response_metrics = ChatMessage.objects.filter(
             role='user', response_time_seconds__isnull=False
-        ).aggregate(
+        ).filter(msg_filter).aggregate(
             avg_response=Avg('response_time_seconds'),
             max_response=Max('response_time_seconds'),
             avg_pause=Avg('total_pause_seconds'),
@@ -157,7 +182,7 @@ def dashboard(request):
         # Métricas finas de telemetría (ms)
         fine_metrics = ChatMessage.objects.filter(
             role='user', latency_reading_ms__isnull=False
-        ).aggregate(
+        ).filter(msg_filter).aggregate(
             avg_reading=Avg('latency_reading_ms'),
             avg_execution=Avg('latency_execution_ms'),
             avg_backspaces=Avg('backspace_count'),
@@ -166,7 +191,7 @@ def dashboard(request):
         # Top gerentes por tiempo de respuesta promedio
         user_metrics_raw = ChatMessage.objects.filter(
             role='user', response_time_seconds__isnull=False
-        ).values(
+        ).filter(msg_filter).values(
             'session__user_id', 'session__user__first_name', 'session__user__last_name'
         ).annotate(
             avg_response=Avg('response_time_seconds'),
@@ -191,11 +216,11 @@ def dashboard(request):
         # ── Datos para gráfico NChs ──
         nchs_sessions = CaseSession.objects.filter(
             n_interactions__gt=0
-        ).select_related('user').order_by('-nchs_score')
+        ).filter(session_filter).select_related('user').order_by('-nchs_score')
 
         nchs_aggregate = CaseSession.objects.filter(
             n_interactions__gt=0
-        ).aggregate(
+        ).filter(session_filter).aggregate(
             avg_nchs=Avg('nchs_score'),
             max_nchs=Max('nchs_score'),
             min_nchs=Min('nchs_score'),
@@ -204,13 +229,13 @@ def dashboard(request):
         # Clasificaciones por tipo
         classification_counts = ChatMessage.objects.filter(
             classification_variable__isnull=False
-        ).values('classification_variable').annotate(count=Count('id'))
+        ).filter(msg_filter).values('classification_variable').annotate(count=Count('id'))
         class_data = {c['classification_variable']: c['count'] for c in classification_counts}
 
         # Sesiones abandonadas
         abandoned_sessions = CaseSession.objects.filter(
             status='abandoned'
-        ).select_related('user').order_by('-last_heartbeat')
+        ).filter(scope_filter).select_related('user').order_by('-last_heartbeat')
 
         # Sesiones con SLA vencido
         from django.utils import timezone
@@ -218,23 +243,23 @@ def dashboard(request):
             sla_deadline__isnull=False,
             sla_breached=False,
             sla_deadline__lt=timezone.now()
-        ).select_related('user', 'case').order_by('sla_deadline')
+        ).filter(scope_filter).select_related('user', 'case').order_by('sla_deadline')
 
         # Sesiones escaladas
         escalated_sessions = CaseSession.objects.filter(
             status='escalado'
-        ).select_related('user', 'case').order_by('-started_at')
+        ).filter(scope_filter).select_related('user', 'case').order_by('-started_at')
 
         # ── KPI: críticos (alta prioridad + SLA vencido) ──
         critical_sessions = CaseSession.objects.filter(
             priority='alta',
             sla_deadline__isnull=False,
             sla_breached=True,
-        ).count()
+        ).filter(kpi_filter).count()
 
         # ── % Cumplimiento SLA ──
-        total_with_sla = CaseSession.objects.filter(sla_deadline__isnull=False).count()
-        breached_count = CaseSession.objects.filter(sla_breached=True).count()
+        total_with_sla = CaseSession.objects.filter(sla_deadline__isnull=False).filter(kpi_filter).count()
+        breached_count = CaseSession.objects.filter(sla_breached=True).filter(kpi_filter).count()
         sla_compliance = round((total_with_sla - breached_count) / max(total_with_sla, 1) * 100, 1)
 
         # ── Serie temporal: últimos 7 días ──
@@ -242,7 +267,7 @@ def dashboard(request):
         daily_metrics_raw = ChatMessage.objects.filter(
             role='user', response_time_seconds__isnull=False,
             created_at__date__gte=seven_days_ago
-        ).annotate(
+        ).filter(msg_filter).annotate(
             day=TruncDate('created_at')
         ).values('day').annotate(
             avg_response=Avg('response_time_seconds'),
@@ -260,7 +285,7 @@ def dashboard(request):
         # ── Segmentación por categoría ──
         category_metrics_raw = ChatMessage.objects.filter(
             role='user', response_time_seconds__isnull=False
-        ).values(
+        ).filter(msg_filter).values(
             'session__case__category'
         ).annotate(
             avg_response=Avg('response_time_seconds'),
@@ -287,7 +312,7 @@ def dashboard(request):
 
         total_measured = ChatMessage.objects.filter(
             role='user', response_time_seconds__isnull=False
-        ).count()
+        ).filter(msg_filter).count()
 
         context.update({
             'pending_diagnoses': pending_diagnoses,
@@ -654,8 +679,7 @@ def send_message(request, session_id):
         return JsonResponse({'error': 'Mensaje vacío.'}, status=400)
 
     # Validar coherencia del mensaje
-    msg_lower = user_message.lower()
-    if not any(t in msg_lower for t in FINISH_TRIGGERS):
+    if not is_finish_trigger(user_message):
         text_to_check = quick_reply_reason if quick_reply_option else user_message
         is_valid, reason = validate_user_message(text_to_check)
         if not is_valid:
@@ -744,16 +768,23 @@ def send_message(request, session_id):
     )
 
     # Cerrar sesión si el usuario quiso finalizar
-    if any(t in user_message.lower() for t in FINISH_TRIGGERS):
+    if is_finish_trigger(user_message):
         session.completed_at = timezone.now()
         session.ia_feedback = ai_text
         if not session.sla_deadline and session.case.sla_hours:
             session.sla_deadline = timezone.now() + timezone.timedelta(hours=session.case.sla_hours)
+
+        new_hash = session.compute_content_hash()
+        if CaseSession.objects.filter(content_hash=new_hash).exclude(id=session.id).exists():
+            logger.warning(f"Sesión {session.id}: contenido idéntico a otra sesión existente (hash={new_hash}).")
+        else:
+            session.content_hash = new_hash
+
         session.transition_to('completado', user=request.user)
 
     # Avanzar de fase si corresponde
     phase_order = ['ambiguity', 'pressure', 'dilemma']
-    if not any(t in user_message.lower() for t in FINISH_TRIGGERS):
+    if not is_finish_trigger(user_message):
         if session.current_phase in phase_order and _should_advance_phase(session):
             idx = phase_order.index(session.current_phase)
             if idx < len(phase_order) - 1:
@@ -1145,14 +1176,20 @@ def export_session_json(request, session_id):
 
 
 @login_required
-def export_csv(request):
+def export_pdf(request):
     if not request.user.is_mae and not request.user.is_admin_role:
         return redirect('dashboard')
-    import csv
-    from django.http import HttpResponse
-    from django.db.models import Q
 
-    # Aplicar filtros del dashboard
+    import io
+    from django.db.models import Avg, Q
+    from django.http import HttpResponse
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+
+    # Aplicar los mismos filtros del dashboard
     status_filter = request.GET.get('status', '')
     gerente_filter = request.GET.get('gerente', '')
     category_filter = request.GET.get('category', '')
@@ -1174,58 +1211,100 @@ def export_csv(request):
     if date_to:
         session_filter &= Q(started_at__date__lte=date_to)
 
-    response = HttpResponse(content_type='text/csv; charset=utf-8')
-    filename_parts = ['mae_telemetria']
+    sessions = CaseSession.objects.filter(session_filter).select_related('user', 'case').annotate(
+        avg_response=Avg('messages__response_time_seconds'),
+        avg_pause=Avg('messages__total_pause_seconds'),
+    ).order_by('-started_at')
+
+    header = ['Hash', 'Gerente', 'Prom. Respuestas (s)', 'Prom. Pausas (s)', 'AC', 'SM', 'TS', 'Caso']
+    rows = [header]
+
+    total_ac = total_sm = total_ts = 0
+
+    for s in sessions:
+        avg_r = s.avg_response
+        avg_p = s.avg_pause
+        total_ac += s.acumulado_ac
+        total_sm += s.acumulado_sm
+        total_ts += s.acumulado_ts
+
+        rows.append([
+            (s.content_hash[:12] + '\u2026') if s.content_hash else '\u2014',
+            s.user.get_full_name(),
+            f"{avg_r:.1f}" if avg_r is not None else '\u2014',
+            f"{avg_p:.1f}" if avg_p is not None else '\u2014',
+            str(s.acumulado_ac),
+            str(s.acumulado_sm),
+            str(s.acumulado_ts),
+            s.case.title,
+        ])
+
+    # Promedio general ponderado sobre TODOS los mensajes (no el promedio de los
+    # promedios por sesi\u00f3n, que sesga si las sesiones tienen distinta cantidad de mensajes).
+    grand_metrics = ChatMessage.objects.filter(session__in=sessions).aggregate(
+        avg_response=Avg('response_time_seconds'),
+        avg_pause=Avg('total_pause_seconds'),
+    )
+
+    total_row = [
+        'TOTAL',
+        f'{sessions.count()} sesi\u00f3n(es)',
+        f"{grand_metrics['avg_response']:.1f}" if grand_metrics['avg_response'] is not None else '\u2014',
+        f"{grand_metrics['avg_pause']:.1f}" if grand_metrics['avg_pause'] is not None else '\u2014',
+        str(total_ac),
+        str(total_sm),
+        str(total_ts),
+        '',
+    ]
+    rows.append(total_row)
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=landscape(A4),
+        leftMargin=1.5 * cm, rightMargin=1.5 * cm, topMargin=1.5 * cm, bottomMargin=1.5 * cm,
+    )
+    styles = getSampleStyleSheet()
+
+    elements = [
+        Paragraph('Reporte de Sesiones \u2014 Gerente IA', styles['Title']),
+        Paragraph(
+            f"Generado: {timezone.now().strftime('%d/%m/%Y %H:%M')} \u00b7 "
+            f"{sessions.count()} sesi\u00f3n(es)",
+            styles['Normal'],
+        ),
+        Spacer(1, 0.6 * cm),
+    ]
+
+    table = Table(rows, repeatRows=1, colWidths=[3.2*cm, 4.5*cm, 3.3*cm, 3.0*cm, 1.6*cm, 1.6*cm, 1.6*cm, 6*cm])
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e293b')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#e2e8f0')),
+        ('LINEABOVE', (0, -1), (-1, -1), 1, colors.black),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor('#f8fafc')]),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('ALIGN', (2, 0), (6, -1), 'CENTER'),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(table)
+    elements.append(Spacer(1, 0.4 * cm))
+    elements.append(Paragraph(
+        "<b>TOTAL</b> — Prom. Respuestas / Pausas: promedio general ponderado sobre todos los "
+        "mensajes (no el promedio de los promedios por fila). AC / SM / TS: suma total.",
+        styles['Normal'],
+    ))
+    doc.build(elements)
+
+    response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
+    filename_parts = ['mae_reporte']
     if gerente_filter:
         filename_parts.append(f'gerente_{gerente_filter}')
     if status_filter:
         filename_parts.append(status_filter)
-    response['Content-Disposition'] = f'attachment; filename="{"_".join(filename_parts)}.csv"'
-    response.write('\ufeff')  # BOM para Excel
-
-    writer = csv.writer(response)
-    writer.writerow([
-        'Session_ID', 'User_ID', 'Nombre', 'Nivel', 'Experiencia',
-        'Entropy_Node', 'Interaction_Number', 'Role',
-        'Classification_Variable', 'AI_Justification',
-        'Latency_Reading_MS', 'Latency_Execution_MS', 'Backspace_Count',
-        'Current_NCHs_Score', 'Created_At',
-    ])
-
-    sessions = CaseSession.objects.filter(session_filter).select_related('user', 'case').prefetch_related('messages')
-    interaction_counter = {}
-
-    for session in sessions:
-        key = session.id
-        interaction_counter[key] = 0
-        profile_level = 'sin_nivel'
-        profile_exp = ''
-        try:
-            mp = session.user.manager_profile
-            profile_level = mp.get_level_display()
-            profile_exp = mp.get_experience_years_display()
-        except Exception:
-            pass
-
-        for msg in session.messages.all():
-            if msg.role == 'user':
-                interaction_counter[key] += 1
-            writer.writerow([
-                session.id,
-                session.user.id,
-                session.user.get_full_name(),
-                profile_level,
-                profile_exp,
-                msg.entropy_node,
-                interaction_counter[key],
-                msg.role,
-                msg.classification_variable or '',
-                msg.ai_justification or '',
-                msg.latency_reading_ms or '',
-                msg.latency_execution_ms or '',
-                msg.backspace_count or '',
-                float(session.nchs_score),
-                msg.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-            ])
-
+    response['Content-Disposition'] = f'attachment; filename="{"_".join(filename_parts)}.pdf"'
     return response

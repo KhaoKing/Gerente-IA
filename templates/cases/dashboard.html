@@ -441,15 +441,15 @@
       </div>
       <div class="stat-card">
         <span class="stat-value">{{ class_data.Ac|default:0 }}</span>
-        <span class="stat-label">Acoplamientos (Ac)</span>
+        <span class="stat-label" style="cursor:help;border-bottom:1px dotted var(--text-3)" title="Acoplamiento Exitoso: el gerente acepta la sugerencia de la IA, construye sobre ella o muestra consenso.">Acoplamientos (Ac)</span>
       </div>
       <div class="stat-card">
         <span class="stat-value">{{ class_data.Sm|default:0 }}</span>
-        <span class="stat-label">Sincronías (Sm)</span>
+        <span class="stat-label" style="cursor:help;border-bottom:1px dotted var(--text-3)" title="Sincronía Metódica: el gerente ignora la sugerencia de la IA, pero su decisión es analíticamente correcta e igual de válida.">Sincronías (Sm)</span>
       </div>
       <div class="stat-card">
         <span class="stat-value" style="color:#f87171">{{ class_data.Ts|default:0 }}</span>
-        <span class="stat-label">Traumas (Ts)</span>
+        <span class="stat-label" style="cursor:help;border-bottom:1px dotted var(--text-3)" title="Trauma Sistémico: el gerente usa lenguaje dictatorial, anula la agencia de la IA agresivamente o da órdenes destructivas.">Traumas (Ts)</span>
       </div>
     </div>
 
@@ -461,9 +461,9 @@
             <th>Gerente</th>
             <th>Caso</th>
             <th>Interacciones (n)</th>
-            <th>Ac</th>
-            <th>Sm</th>
-            <th>Ts</th>
+            <th style="cursor:help;border-bottom:1px dotted var(--text-3)" title="Acoplamiento Exitoso: el gerente acepta la sugerencia de la IA, construye sobre ella o muestra consenso.">Ac</th>
+            <th style="cursor:help;border-bottom:1px dotted var(--text-3)" title="Sincronía Metódica: el gerente ignora la sugerencia de la IA, pero su decisión es analíticamente correcta e igual de válida.">Sm</th>
+            <th style="cursor:help;border-bottom:1px dotted var(--text-3)" title="Trauma Sistémico: el gerente usa lenguaje dictatorial, anula la agencia de la IA agresivamente o da órdenes destructivas.">Ts</th>
             <th>NC_hs</th>
             <th>Exportar</th>
           </tr>
@@ -586,15 +586,15 @@
   </div>
   {% endif %}
 
-  {# ── Exportación CSV Global ── #}
+  {# ── Exportación PDF Global ── #}
   <div class="card card-wide" style="margin-top: 1.5rem;">
     <h3>📥 Exportación de datos</h3>
     <p style="font-size:.85rem;color:var(--text-2);margin-top:.3rem">Formatos para análisis externo.</p>
     <div style="display:flex;gap:1rem;margin-top:1rem;flex-wrap:wrap">
-      <a href="{% url 'export_csv' %}{% if filter_qs %}?{{ filter_qs }}{% endif %}" class="btn-primary">📊 Exportar CSV (SPSS)</a>
+      <a href="{% url 'export_pdf' %}{% if filter_qs %}?{{ filter_qs }}{% endif %}" class="btn-primary">📄 Exportar PDF</a>
     </div>
     <p style="font-size:.75rem;color:var(--text-3);margin-top:.6rem">
-      El CSV contiene matriz de telemetría paramétrica. Usa el botón JSON en cada sesión para exportar el corpus completo (Atlas.ti).
+      El PDF resume una fila por sesión (hash, gerente, promedios, Ac/Sm/Ts, caso) con totalizadores. Usa el botón JSON en cada sesión para exportar el corpus completo (Atlas.ti).
     </p>
   </div>
   {% endif %}

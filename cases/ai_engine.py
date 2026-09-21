@@ -128,6 +128,14 @@ QUICK_REPLY_RESPONSES = {
 }
 
 FINISH_TRIGGERS = ['listo', 'terminar', 'evaluar', 'finalizar', 'fin', 'concluir', 'termino', 'terminé']
+_FINISH_TRIGGERS_RE = re.compile(r'\b(' + '|'.join(re.escape(t) for t in FINISH_TRIGGERS) + r')\b', re.IGNORECASE)
+
+
+def is_finish_trigger(message: str) -> bool:
+    """True si el mensaje contiene alguna palabra completa de cierre de caso.
+    Coincidencia por palabra completa, no por substring — 'definir' o 'finanzas'
+    no deben disparar el cierre solo porque contienen 'fin'."""
+    return bool(_FINISH_TRIGGERS_RE.search(message))
 
 # ── System prompts por fase ────────────────────────────────────────────────────
 
@@ -739,9 +747,7 @@ def get_ai_response(user_message: str, session, case, quick_reply_option: str = 
         had_error: bool
     """
     try:
-        msg_lower = user_message.lower()
-
-        if any(t in msg_lower for t in FINISH_TRIGGERS):
+        if is_finish_trigger(user_message):
             feedback = generate_final_feedback(session)
             return {
                 'respuesta_simulador': feedback,

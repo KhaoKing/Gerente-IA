@@ -157,6 +157,21 @@ class CaseSession(models.Model):
     priority = models.CharField('Prioridad', max_length=10, choices=ManagementCase.PRIORITY_CHOICES, default='media')
     started_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    content_hash = models.CharField(
+        'Hash del contenido', max_length=64, null=True, blank=True, unique=True, db_index=True,
+        help_text='SHA-256 del caso + la transcripción completa, calculado al cerrar la sesión. '
+                   'Detecta sesiones con contenido idéntico a otra ya existente.'
+    )
+
+    def compute_content_hash(self) -> str:
+        """Huella digital del caso: sha256(caso + rol:contenido de cada mensaje, en orden).
+        Sirve para verificar integridad de la transcripción y detectar sesiones duplicadas."""
+        import hashlib
+        parts = [str(self.case_id)]
+        for m in self.messages.order_by('created_at'):
+            parts.append(f"{m.role}:{m.content.strip()}")
+        raw = "\n".join(parts)
+        return hashlib.sha256(raw.encode('utf-8')).hexdigest()
 
     def can_transition_to(self, new_status):
         return new_status in self.ALLOWED_TRANSITIONS.get(self.status, [])

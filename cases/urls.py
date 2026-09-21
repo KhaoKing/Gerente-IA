@@ -24,7 +24,7 @@ urlpatterns = [
     # Heartbeat y exportación
     path('caso/<int:session_id>/heartbeat/', views.heartbeat, name='heartbeat'),
     path('mae/exportar/<int:session_id>/json/', views.export_session_json, name='export_json'),
-    path('mae/exportar/csv/', views.export_csv, name='export_csv'),
+    path('mae/exportar/pdf/', views.export_pdf, name='export_pdf'),
     # Pre/Post evaluación
     path('caso/<int:session_id>/pre-evaluacion/', views.pre_evaluation, name='pre_evaluation'),
     path('caso/<int:session_id>/post-autopsia/', views.post_autopsy, name='post_autopsy'),
